@@ -1,0 +1,1 @@
+﻿Note to human reader: the folder with the Devmate Rules file is hidden due to the way the folder has to be named for Devmate to find these rules (folders starting with a “.” are considered by MacOS as technical/system folders and are hidden by default. Curious Mac users can reveal this folder by pressing “Cmd + Shift + .”
