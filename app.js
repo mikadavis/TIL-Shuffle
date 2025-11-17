@@ -47,12 +47,33 @@ function cacheElements() {
         apiKeyError: document.getElementById('apiKeyError'),
         apiKeySuccess: document.getElementById('apiKeySuccess'),
 
+        // Game ID modals
+        createGameModal: document.getElementById('createGameModal'),
+        displayGameId: document.getElementById('displayGameId'),
+        copyGameIdBtn: document.getElementById('copyGameIdBtn'),
+        closeCreateGameModal: document.getElementById('closeCreateGameModal'),
+
+        joinGameModal: document.getElementById('joinGameModal'),
+        joinGameIdInput: document.getElementById('joinGameIdInput'),
+        joinGameBtn: document.getElementById('joinGameBtn'),
+        joinGameError: document.getElementById('joinGameError'),
+        joinGameSuccess: document.getElementById('joinGameSuccess'),
+        closeJoinGameModal: document.getElementById('closeJoinGameModal'),
+
         // Main app elements
         appContainer: document.getElementById('appContainer'),
         loadingOverlay: document.getElementById('loadingOverlay'),
 
+        // Game ID banner
+        gameIdBanner: document.getElementById('gameIdBanner'),
+        bannerGameId: document.getElementById('bannerGameId'),
+        copyGameIdBannerBtn: document.getElementById('copyGameIdBannerBtn'),
+
         // Entry mode elements
         entryMode: document.getElementById('entryMode'),
+        gameSelectionButtons: document.getElementById('gameSelectionButtons'),
+        createNewGameBtn: document.getElementById('createNewGameBtn'),
+        joinExistingGameBtn: document.getElementById('joinExistingGameBtn'),
         entryFormsContainer: document.getElementById('entryFormsContainer'),
         addEntryBtn: document.getElementById('addEntryBtn'),
         submitAllBtn: document.getElementById('submitAllBtn'),
@@ -168,6 +189,17 @@ function initializeApp() {
     elements.apiKeyModal.style.display = 'none';
     elements.appContainer.style.display = 'block';
 
+    // Check if user is in an existing game
+    const gameId = getGameID();
+    if (gameId) {
+        console.log('[App] Existing Game ID found:', gameId);
+        showGameIdBanner(gameId);
+        hideGameSelectionButtons();
+    } else {
+        console.log('[App] No existing Game ID - showing game selection buttons');
+        showGameSelectionButtons();
+    }
+
     // Add initial entry form
     addEntryForm();
 
@@ -185,6 +217,15 @@ function initializeApp() {
  */
 function attachEventListeners() {
     console.log('[App] Attaching event listeners...');
+
+    // Game ID modal buttons
+    elements.createNewGameBtn.addEventListener('click', handleCreateNewGame);
+    elements.joinExistingGameBtn.addEventListener('click', () => showJoinGameModal());
+    elements.copyGameIdBtn.addEventListener('click', handleCopyGameId);
+    elements.copyGameIdBannerBtn.addEventListener('click', handleCopyGameIdBanner);
+    elements.closeCreateGameModal.addEventListener('click', () => hideCreateGameModal());
+    elements.joinGameBtn.addEventListener('click', handleJoinGame);
+    elements.closeJoinGameModal.addEventListener('click', () => hideJoinGameModal());
 
     // Entry mode buttons
     elements.addEntryBtn.addEventListener('click', handleAddEntry);
@@ -635,7 +676,7 @@ function handleBackToEntry() {
 async function handleNewSession() {
     console.log('[App] New session button clicked');
 
-    const confirmed = confirm('Are you sure you want to start a new session? This will clear all existing TILs.');
+    const confirmed = confirm('Are you sure you want to start a new session? This will clear all existing TILs and create a new game.');
     console.log('[App] User confirmation:', confirmed);
 
     if (!confirmed) {
@@ -643,11 +684,12 @@ async function handleNewSession() {
         return;
     }
 
-    showLoading('Clearing session...');
+    showLoading('Creating new session...');
 
     try {
-        await clearTILEntries();
-        console.log('[App] Session cleared successfully');
+        // Clear Game ID to start fresh
+        clearGameID();
+        console.log('[App] Game ID cleared');
 
         // Reset app state
         appState = {
@@ -664,7 +706,13 @@ async function handleNewSession() {
         addEntryForm();
         switchToEntryMode();
 
+        // Hide Game ID banner and show game selection buttons
+        hideGameIdBanner();
+        showGameSelectionButtons();
+
         hideLoading();
+
+        alert('New session created! You can now create or join a game.');
 
         console.log('[App] New session started');
 
@@ -673,6 +721,250 @@ async function handleNewSession() {
         hideLoading();
         alert(`Error clearing session: ${error.message}`);
     }
+}
+
+// ===========================================
+// Game ID Management Functions
+// ===========================================
+
+/**
+ * Show Game ID banner with the current game ID
+ */
+function showGameIdBanner(gameId) {
+    console.log('[App] Showing Game ID banner:', gameId);
+    elements.bannerGameId.textContent = gameId;
+    elements.gameIdBanner.style.display = 'flex';
+}
+
+/**
+ * Hide Game ID banner
+ */
+function hideGameIdBanner() {
+    console.log('[App] Hiding Game ID banner');
+    elements.gameIdBanner.style.display = 'none';
+}
+
+/**
+ * Show game selection buttons
+ */
+function showGameSelectionButtons() {
+    console.log('[App] Showing game selection buttons');
+    elements.gameSelectionButtons.style.display = 'flex';
+}
+
+/**
+ * Hide game selection buttons
+ */
+function hideGameSelectionButtons() {
+    console.log('[App] Hiding game selection buttons');
+    elements.gameSelectionButtons.style.display = 'none';
+}
+
+/**
+ * Handle create new game button click
+ */
+async function handleCreateNewGame() {
+    console.log('[App] Create new game button clicked');
+
+    showLoading('Creating new game...');
+
+    try {
+        // Create an empty game file to get a Game ID
+        const gameData = {
+            gameId: 'new',
+            createdAt: new Date().toISOString(),
+            lastUpdated: new Date().toISOString(),
+            expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+            entries: []
+        };
+
+        console.log('[App] Creating game with data:', JSON.stringify(gameData, null, 2));
+
+        const result = await uploadGameFile(gameData);
+        const gameId = result.fileId;
+
+        console.log('[App] Game created successfully with ID:', gameId);
+
+        // Save Game ID
+        setGameID(gameId);
+
+        hideLoading();
+
+        // Show the Game ID modal
+        showCreateGameModal(gameId);
+
+        // Update UI
+        showGameIdBanner(gameId);
+        hideGameSelectionButtons();
+
+    } catch (error) {
+        console.error('[App] Error creating new game:', error);
+        hideLoading();
+        alert(`Error creating game: ${error.message}`);
+    }
+}
+
+/**
+ * Show create game modal with the new Game ID
+ */
+function showCreateGameModal(gameId) {
+    console.log('[App] Showing create game modal with Game ID:', gameId);
+    elements.displayGameId.value = gameId;
+    elements.createGameModal.style.display = 'flex';
+}
+
+/**
+ * Hide create game modal
+ */
+function hideCreateGameModal() {
+    console.log('[App] Hiding create game modal');
+    elements.createGameModal.style.display = 'none';
+}
+
+/**
+ * Handle copy Game ID button click (from modal)
+ */
+async function handleCopyGameId() {
+    console.log('[App] Copy Game ID button clicked');
+    const gameId = elements.displayGameId.value;
+
+    try {
+        await navigator.clipboard.writeText(gameId);
+        console.log('[App] Game ID copied to clipboard');
+
+        // Visual feedback
+        elements.copyGameIdBtn.textContent = '✓ Copied!';
+        setTimeout(() => {
+            elements.copyGameIdBtn.textContent = '📋 Copy';
+        }, 2000);
+    } catch (error) {
+        console.error('[App] Error copying to clipboard:', error);
+        alert('Could not copy to clipboard. Please copy manually.');
+    }
+}
+
+/**
+ * Handle copy Game ID button click (from banner)
+ */
+async function handleCopyGameIdBanner() {
+    console.log('[App] Copy Game ID banner button clicked');
+    const gameId = getGameID();
+
+    try {
+        await navigator.clipboard.writeText(gameId);
+        console.log('[App] Game ID copied to clipboard from banner');
+
+        // Visual feedback
+        elements.copyGameIdBannerBtn.textContent = '✓';
+        setTimeout(() => {
+            elements.copyGameIdBannerBtn.textContent = '📋';
+        }, 2000);
+    } catch (error) {
+        console.error('[App] Error copying to clipboard:', error);
+        alert('Could not copy to clipboard. Please copy manually: ' + gameId);
+    }
+}
+
+/**
+ * Show join game modal
+ */
+function showJoinGameModal() {
+    console.log('[App] Showing join game modal');
+    elements.joinGameIdInput.value = '';
+    elements.joinGameError.style.display = 'none';
+    elements.joinGameSuccess.style.display = 'none';
+    elements.joinGameModal.style.display = 'flex';
+}
+
+/**
+ * Hide join game modal
+ */
+function hideJoinGameModal() {
+    console.log('[App] Hiding join game modal');
+    elements.joinGameModal.style.display = 'none';
+}
+
+/**
+ * Handle join game button click
+ */
+async function handleJoinGame() {
+    console.log('[App] Join game button clicked');
+
+    const gameId = elements.joinGameIdInput.value.trim();
+    console.log('[App] Attempting to join game with ID:', gameId);
+
+    if (!gameId) {
+        console.log('[App] Game ID is empty');
+        showJoinGameError('Please enter a Game ID');
+        return;
+    }
+
+    // Validate Game ID format
+    if (!isValidGameID(gameId)) {
+        console.log('[App] Invalid Game ID format');
+        showJoinGameError('Invalid Game ID format. Game IDs should look like: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx');
+        return;
+    }
+
+    // Hide previous messages
+    elements.joinGameError.style.display = 'none';
+    elements.joinGameSuccess.style.display = 'none';
+
+    // Show loading state
+    elements.joinGameBtn.textContent = 'Joining...';
+    elements.joinGameBtn.disabled = true;
+
+    try {
+        // Try to load the game to verify it exists
+        const testResult = await downloadGameFile(gameId);
+        console.log('[App] Game found successfully:', JSON.stringify(testResult, null, 2));
+
+        // Save the Game ID
+        setGameID(gameId);
+        console.log('[App] Game ID saved');
+
+        showJoinGameSuccess('Success! You have joined the game.');
+
+        // Update UI after short delay
+        setTimeout(() => {
+            hideJoinGameModal();
+            showGameIdBanner(gameId);
+            hideGameSelectionButtons();
+            checkExistingEntries();
+        }, 1500);
+
+    } catch (error) {
+        console.error('[App] Error joining game:', error);
+
+        let errorMessage = 'Error joining game: ' + error.message;
+        if (error.message.includes('Game not found')) {
+            errorMessage = 'Game not found. Please check the Game ID and try again. Note: Games expire after 30 days.';
+        }
+
+        showJoinGameError(errorMessage);
+        elements.joinGameBtn.textContent = 'Join Game';
+        elements.joinGameBtn.disabled = false;
+    }
+}
+
+/**
+ * Show error in join game modal
+ */
+function showJoinGameError(message) {
+    console.log('[App] Showing join game error:', message);
+    elements.joinGameError.textContent = message;
+    elements.joinGameError.style.display = 'block';
+    elements.joinGameSuccess.style.display = 'none';
+}
+
+/**
+ * Show success in join game modal
+ */
+function showJoinGameSuccess(message) {
+    console.log('[App] Showing join game success:', message);
+    elements.joinGameSuccess.textContent = message;
+    elements.joinGameSuccess.style.display = 'block';
+    elements.joinGameError.style.display = 'none';
 }
 
 /**
