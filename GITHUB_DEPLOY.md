@@ -17,7 +17,7 @@ Your code is ready to deploy! Follow these steps:
 3. Configure repository:
    - **Name:** `til-shuffle`
    - **Description:** "TIL Shuffle - Team learning game show"
-   - **Visibility:** 
+   - **Visibility:**
      - For GHE: Choose "Internal" (recommended) or "Private"
      - For Public: Choose "Public" or "Private"
    - **IMPORTANT:** Do NOT check "Initialize with README"
