@@ -107,74 +107,76 @@ async function validateAPIKey(apiKey) {
 }
 
 /**
- * Save TIL entries to cloud storage
+ * Upload game file to cloud storage and return file_id (Game ID)
  */
-async function saveTILEntries(entries) {
-    console.log('[API] Saving TIL entries to cloud storage...');
-    console.log('[API] Number of entries to save:', entries.length);
-    console.log('[API] Entries data:', JSON.stringify(entries, null, 2));
+async function uploadGameFile(gameData) {
+    console.log('[API] Uploading game file to cloud storage...');
+    console.log('[API] Game data:', JSON.stringify(gameData, null, 2));
 
     const apiKey = getAPIKey();
     if (!apiKey) {
-        console.error('[API] Cannot save - No API key found');
+        console.error('[API] Cannot upload - No API key found');
         throw new Error('No API key found. Please refresh the page.');
     }
 
-    const endpoint = `${API_BASE_URL}/structured-memories/${STORAGE_KEY}`;
-    console.log('[API] PUT endpoint:', endpoint);
-
-    // Prepare payload - entries data wrapped in an object
-    const payload = { entries };
-    console.log('[API] Full payload being sent:', JSON.stringify(payload, null, 2));
+    const endpoint = `${API_BASE_URL}/files/`;
+    console.log('[API] POST endpoint:', endpoint);
 
     try {
+        // Create a JSON blob from the game data
+        const jsonBlob = new Blob([JSON.stringify(gameData, null, 2)], { type: 'application/json' });
+        
+        // Create FormData for multipart upload
+        const formData = new FormData();
+        formData.append('file', jsonBlob, 'til-shuffle-game.json');
+
+        console.log('[API] Uploading JSON file with FormData');
+
         const response = await fetch(endpoint, {
-            method: 'PUT',
+            method: 'POST',
             headers: {
                 'Authorization': `Bearer ${apiKey}`,
-                'Content-Type': 'application/json'
+                'accept': 'application/json'
             },
-            body: JSON.stringify(payload)
+            body: formData
         });
 
-        console.log('[API] Save response status:', response.status);
-        console.log('[API] Save response ok:', response.ok);
+        console.log('[API] Upload response status:', response.status);
+        console.log('[API] Upload response ok:', response.ok);
 
         if (!response.ok) {
             const errorText = await response.text();
-            console.error('[API] Save failed - Response:', errorText);
-            console.error('[API] Status code:', response.status);
-            
-            if (response.status === 409) {
-                console.error('[API] 409 Conflict Error - This may indicate a concurrent write issue');
-                throw new Error('Data conflict detected. Please try again.');
-            }
-            
-            throw new Error(`Failed to save entries: ${response.status} - ${errorText}`);
+            console.error('[API] Upload failed - Response:', errorText);
+            throw new Error(`Failed to upload game file: ${response.status} - ${errorText}`);
         }
 
         const data = await response.json();
-        console.log('[API] Save successful - Response:', JSON.stringify(data, null, 2));
-        return { success: true, data };
+        console.log('[API] Upload successful - Response:', JSON.stringify(data, null, 2));
+        
+        const fileId = data.file_id;
+        console.log('[API] Game ID (file_id):', fileId);
+        
+        return { success: true, fileId, data };
     } catch (error) {
-        console.error('[API] Save error:', error);
+        console.error('[API] Upload error:', error);
         throw error;
     }
 }
 
 /**
- * Load TIL entries from cloud storage
+ * Download game file from cloud storage using Game ID (file_id)
  */
-async function loadTILEntries() {
-    console.log('[API] Loading TIL entries from cloud storage...');
+async function downloadGameFile(gameId) {
+    console.log('[API] Downloading game file from cloud storage...');
+    console.log('[API] Game ID (file_id):', gameId);
 
     const apiKey = getAPIKey();
     if (!apiKey) {
-        console.error('[API] Cannot load - No API key found');
+        console.error('[API] Cannot download - No API key found');
         throw new Error('No API key found. Please refresh the page.');
     }
 
-    const endpoint = `${API_BASE_URL}/structured-memories/${STORAGE_KEY}`;
+    const endpoint = `${API_BASE_URL}/files/${gameId}?file_type=default`;
     console.log('[API] GET endpoint:', endpoint);
 
     try {
@@ -182,33 +184,118 @@ async function loadTILEntries() {
             method: 'GET',
             headers: {
                 'Authorization': `Bearer ${apiKey}`,
-                'Content-Type': 'application/json'
+                'accept': 'application/json'
             }
         });
 
-        console.log('[API] Load response status:', response.status);
-        console.log('[API] Load response ok:', response.ok);
+        console.log('[API] Download response status:', response.status);
+        console.log('[API] Download response ok:', response.ok);
 
         if (!response.ok) {
             if (response.status === 404) {
-                console.log('[API] No entries found (404) - returning empty array');
-                return { entries: [] };
+                console.error('[API] Game file not found (404) - may be expired');
+                throw new Error('Game not found. It may have expired (files last 30 days).');
             }
             const errorText = await response.text();
-            console.error('[API] Load failed - Response:', errorText);
-            throw new Error(`Failed to load entries: ${response.status}`);
+            console.error('[API] Download failed - Response:', errorText);
+            throw new Error(`Failed to download game file: ${response.status} - ${errorText}`);
         }
 
-        const data = await response.json();
-        console.log('[API] Load successful - Response:', JSON.stringify(data, null, 2));
-
-        // Extract entries from the value property
-        const entries = data.value?.entries || [];
-        console.log('[API] Extracted entries count:', entries.length);
-
-        return { entries };
+        // Get the file as a blob
+        const blob = await response.blob();
+        console.log('[API] Downloaded blob size:', blob.size, 'bytes');
+        
+        // Convert blob to text and parse JSON
+        const text = await blob.text();
+        console.log('[API] Downloaded file content:', text);
+        
+        const gameData = JSON.parse(text);
+        console.log('[API] Parsed game data:', JSON.stringify(gameData, null, 2));
+        
+        return { success: true, gameData };
     } catch (error) {
-        console.error('[API] Load error:', error);
+        console.error('[API] Download error:', error);
+        throw error;
+    }
+}
+
+/**
+ * Save TIL entries to cloud storage using file-based approach
+ * This uploads the game data as a file and returns the Game ID
+ */
+async function saveTILEntries(entries) {
+    console.log('[API] Saving TIL entries using file-based storage...');
+    console.log('[API] Number of entries to save:', entries.length);
+
+    const gameId = getGameID();
+    
+    // Prepare game data structure
+    const gameData = {
+        gameId: gameId || 'new',
+        createdAt: gameId ? undefined : new Date().toISOString(),
+        lastUpdated: new Date().toISOString(),
+        expiresAt: gameId ? undefined : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days from now
+        entries: entries
+    };
+
+    // Remove undefined fields
+    Object.keys(gameData).forEach(key => gameData[key] === undefined && delete gameData[key]);
+
+    console.log('[API] Game data to save:', JSON.stringify(gameData, null, 2));
+
+    try {
+        const result = await uploadGameFile(gameData);
+        
+        // If this is a new game, save the Game ID
+        if (!gameId && result.fileId) {
+            setGameID(result.fileId);
+            console.log('[API] New Game ID saved:', result.fileId);
+        }
+        
+        return { success: true, fileId: result.fileId, data: result.data };
+    } catch (error) {
+        console.error('[API] Save entries error:', error);
+        throw error;
+    }
+}
+
+/**
+ * Load TIL entries from cloud storage using file-based approach
+ */
+async function loadTILEntries() {
+    console.log('[API] Loading TIL entries using file-based storage...');
+
+    const gameId = getGameID();
+    
+    if (!gameId) {
+        console.log('[API] No Game ID found - returning empty entries');
+        return { entries: [] };
+    }
+
+    console.log('[API] Loading game with ID:', gameId);
+
+    try {
+        const result = await downloadGameFile(gameId);
+        const entries = result.gameData.entries || [];
+        
+        console.log('[API] Loaded entries count:', entries.length);
+        console.log('[API] Game created at:', result.gameData.createdAt);
+        console.log('[API] Game last updated:', result.gameData.lastUpdated);
+        console.log('[API] Game expires at:', result.gameData.expiresAt);
+        
+        return { 
+            entries, 
+            gameData: result.gameData 
+        };
+    } catch (error) {
+        console.error('[API] Load entries error:', error);
+        
+        // If game not found (404), clear the invalid Game ID
+        if (error.message.includes('Game not found')) {
+            console.log('[API] Clearing invalid Game ID');
+            clearGameID();
+        }
+        
         throw error;
     }
 }
@@ -227,4 +314,47 @@ async function clearTILEntries() {
         console.error('[API] Clear error:', error);
         throw error;
     }
+}
+
+// ===========================================
+// Game ID Management Functions
+// ===========================================
+
+/**
+ * Set Game ID in localStorage
+ */
+function setGameID(gameId) {
+    console.log('[API] Saving Game ID to localStorage:', gameId);
+    localStorage.setItem('game-id', gameId);
+}
+
+/**
+ * Get Game ID from localStorage
+ */
+function getGameID() {
+    const gameId = localStorage.getItem('game-id');
+    console.log('[API] Retrieved Game ID from localStorage:', gameId || 'No Game ID found');
+    return gameId;
+}
+
+/**
+ * Clear Game ID from localStorage
+ */
+function clearGameID() {
+    console.log('[API] Clearing Game ID from localStorage');
+    localStorage.removeItem('game-id');
+}
+
+/**
+ * Validate Game ID format (should be a UUID)
+ */
+function isValidGameID(gameId) {
+    if (!gameId || typeof gameId !== 'string') {
+        return false;
+    }
+    // UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    // Also accept format with file extension: UUID.extension
+    const uuidWithExtRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z]+$/i;
+    return uuidRegex.test(gameId) || uuidWithExtRegex.test(gameId);
 }

@@ -28,10 +28,10 @@ However, with the current Structured Memories approach:
 
 ## Solution Options
 
-### Option 1: User-Isolated Mode (Quick Fix)  
+### Option 1: User-Isolated Mode (Quick Fix)
 **Status: IMPLEMENTED**
 
-**Description:**  
+**Description:**
 Keep the current Structured Memories approach but make it clear that:
 - Each user plays with only their own TILs
 - It becomes a personal learning log rather than a team game
@@ -56,7 +56,7 @@ Keep the current Structured Memories approach but make it clear that:
 
 ### Option 2: Shared Storage via External Service (Recommended for Team Game)
 
-**Description:**  
+**Description:**
 Use a different approach for truly shared data:
 
 1. **Use Cloud Storage of Files** instead of Structured Memories:
@@ -64,7 +64,7 @@ Use a different approach for truly shared data:
    - Upload the file using `/files/` endpoint
    - Share the `file_id` with the team
    - Everyone uses the same `file_id` to access shared data
-   
+
 2. **Coordinate via a Shared File ID:**
    - First person creates the game and gets a `file_id`
    - Share this `file_id` (e.g., via Workplace post, Slack, email)
@@ -96,7 +96,7 @@ const tilsData = await downloadGameFile(gameId);
 
 ### Option 3: Real-Time Collaboration (Advanced)
 
-**Description:**  
+**Description:**
 Use a third-party real-time database like:
 - Firebase Realtime Database (free tier)
 - Supabase (free tier)
@@ -116,13 +116,13 @@ Use a third-party real-time database like:
 
 ## Current Status
 
-**✅ Option 1 (User-Isolated Mode) is implemented**  
+**✅ Option 1 (User-Isolated Mode) is implemented**
 - Better error handling for 409 conflicts
 - Clear error messages to users
 - Each user can use the app with their own TILs
 
-**Recommendation:**  
-If you want a true team game, implement **Option 2** (Shared Storage via Files).  
+**Recommendation:**
+If you want a true team game, implement **Option 2** (Shared Storage via Files).
 Let me know if you'd like me to implement Option 2!
 
 ---
