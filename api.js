@@ -123,6 +123,10 @@ async function saveTILEntries(entries) {
     const endpoint = `${API_BASE_URL}/structured-memories/${STORAGE_KEY}`;
     console.log('[API] PUT endpoint:', endpoint);
 
+    // Prepare payload - entries data wrapped in an object
+    const payload = { entries };
+    console.log('[API] Full payload being sent:', JSON.stringify(payload, null, 2));
+
     try {
         const response = await fetch(endpoint, {
             method: 'PUT',
@@ -130,7 +134,7 @@ async function saveTILEntries(entries) {
                 'Authorization': `Bearer ${apiKey}`,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ entries })
+            body: JSON.stringify(payload)
         });
 
         console.log('[API] Save response status:', response.status);
@@ -139,7 +143,14 @@ async function saveTILEntries(entries) {
         if (!response.ok) {
             const errorText = await response.text();
             console.error('[API] Save failed - Response:', errorText);
-            throw new Error(`Failed to save entries: ${response.status}`);
+            console.error('[API] Status code:', response.status);
+            
+            if (response.status === 409) {
+                console.error('[API] 409 Conflict Error - This may indicate a concurrent write issue');
+                throw new Error('Data conflict detected. Please try again.');
+            }
+            
+            throw new Error(`Failed to save entries: ${response.status} - ${errorText}`);
         }
 
         const data = await response.json();
