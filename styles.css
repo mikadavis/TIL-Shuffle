@@ -669,6 +669,177 @@ body {
 }
 
 /* ===============================
+   GAME ID UI ELEMENTS
+   =============================== */
+
+/* Game ID Banner in Header */
+.game-id-banner {
+    background: rgba(0, 242, 254, 0.1);
+    border: 2px solid var(--neon-cyan);
+    border-radius: 12px;
+    padding: 12px 20px;
+    margin-top: 15px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    font-size: 14px;
+    color: var(--neon-cyan);
+    font-weight: 600;
+    animation: fadeIn 0.5s ease-out;
+}
+
+.game-id-banner strong {
+    font-family: 'Courier New', monospace;
+    color: var(--text-primary);
+    letter-spacing: 1px;
+}
+
+.copy-banner-btn {
+    background: rgba(0, 242, 254, 0.2);
+    border: none;
+    border-radius: 6px;
+    padding: 6px 12px;
+    color: var(--neon-cyan);
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.copy-banner-btn:hover {
+    background: rgba(0, 242, 254, 0.4);
+    transform: scale(1.1);
+}
+
+/* Game Selection Buttons */
+.game-selection-buttons {
+    display: flex;
+    gap: 20px;
+    justify-content: center;
+    margin-bottom: 40px;
+    flex-wrap: wrap;
+}
+
+.game-btn {
+    padding: 18px 40px;
+    border: 3px solid;
+    border-radius: 16px;
+    font-size: 18px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.create-game-btn {
+    border-color: var(--neon-cyan);
+    color: var(--neon-cyan);
+}
+
+.create-game-btn:hover {
+    background: rgba(0, 242, 254, 0.2);
+    transform: translateY(-3px);
+    box-shadow: 0 10px 30px rgba(0, 242, 254, 0.4);
+}
+
+.join-game-btn {
+    border-color: var(--neon-purple);
+    color: var(--neon-purple);
+}
+
+.join-game-btn:hover {
+    background: rgba(118, 75, 162, 0.2);
+    transform: translateY(-3px);
+    box-shadow: 0 10px 30px rgba(118, 75, 162, 0.4);
+}
+
+/* Game ID Display in Modal */
+.game-id-display {
+    background: rgba(0, 0, 0, 0.3);
+    border: 2px solid var(--neon-cyan);
+    border-radius: 12px;
+    padding: 20px;
+    margin: 25px 0;
+}
+
+.game-id-display label {
+    display: block;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--neon-cyan);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 10px;
+}
+
+.game-id-box {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.game-id-input {
+    flex: 1;
+    padding: 14px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: 16px;
+    font-family: 'Courier New', monospace;
+    letter-spacing: 1px;
+}
+
+.copy-btn {
+    padding: 14px 24px;
+    background: var(--accent-gradient);
+    border: none;
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    white-space: nowrap;
+}
+
+.copy-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(0, 242, 254, 0.4);
+}
+
+.modal-info {
+    background: rgba(67, 233, 123, 0.05);
+    border-left: 4px solid var(--neon-cyan);
+    padding: 20px;
+    border-radius: 8px;
+    margin: 20px 0;
+}
+
+.modal-info p {
+    margin-bottom: 10px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+}
+
+.modal-info strong {
+    color: var(--neon-cyan);
+    font-weight: 700;
+}
+
+.modal-info ol {
+    padding-left: 20px;
+    color: var(--text-secondary);
+    line-height: 1.8;
+}
+
+.modal-info li {
+    margin-bottom: 8px;
+}
+
+/* ===============================
    RESPONSIVE DESIGN
    =============================== */
 @media (max-width: 768px) {

@@ -125,7 +125,7 @@ async function uploadGameFile(gameData) {
     try {
         // Create a JSON blob from the game data
         const jsonBlob = new Blob([JSON.stringify(gameData, null, 2)], { type: 'application/json' });
-        
+
         // Create FormData for multipart upload
         const formData = new FormData();
         formData.append('file', jsonBlob, 'til-shuffle-game.json');
@@ -152,10 +152,10 @@ async function uploadGameFile(gameData) {
 
         const data = await response.json();
         console.log('[API] Upload successful - Response:', JSON.stringify(data, null, 2));
-        
+
         const fileId = data.file_id;
         console.log('[API] Game ID (file_id):', fileId);
-        
+
         return { success: true, fileId, data };
     } catch (error) {
         console.error('[API] Upload error:', error);
@@ -204,14 +204,14 @@ async function downloadGameFile(gameId) {
         // Get the file as a blob
         const blob = await response.blob();
         console.log('[API] Downloaded blob size:', blob.size, 'bytes');
-        
+
         // Convert blob to text and parse JSON
         const text = await blob.text();
         console.log('[API] Downloaded file content:', text);
-        
+
         const gameData = JSON.parse(text);
         console.log('[API] Parsed game data:', JSON.stringify(gameData, null, 2));
-        
+
         return { success: true, gameData };
     } catch (error) {
         console.error('[API] Download error:', error);
@@ -228,7 +228,7 @@ async function saveTILEntries(entries) {
     console.log('[API] Number of entries to save:', entries.length);
 
     const gameId = getGameID();
-    
+
     // Prepare game data structure
     const gameData = {
         gameId: gameId || 'new',
@@ -245,13 +245,13 @@ async function saveTILEntries(entries) {
 
     try {
         const result = await uploadGameFile(gameData);
-        
+
         // If this is a new game, save the Game ID
         if (!gameId && result.fileId) {
             setGameID(result.fileId);
             console.log('[API] New Game ID saved:', result.fileId);
         }
-        
+
         return { success: true, fileId: result.fileId, data: result.data };
     } catch (error) {
         console.error('[API] Save entries error:', error);
@@ -266,7 +266,7 @@ async function loadTILEntries() {
     console.log('[API] Loading TIL entries using file-based storage...');
 
     const gameId = getGameID();
-    
+
     if (!gameId) {
         console.log('[API] No Game ID found - returning empty entries');
         return { entries: [] };
@@ -277,25 +277,25 @@ async function loadTILEntries() {
     try {
         const result = await downloadGameFile(gameId);
         const entries = result.gameData.entries || [];
-        
+
         console.log('[API] Loaded entries count:', entries.length);
         console.log('[API] Game created at:', result.gameData.createdAt);
         console.log('[API] Game last updated:', result.gameData.lastUpdated);
         console.log('[API] Game expires at:', result.gameData.expiresAt);
-        
-        return { 
-            entries, 
-            gameData: result.gameData 
+
+        return {
+            entries,
+            gameData: result.gameData
         };
     } catch (error) {
         console.error('[API] Load entries error:', error);
-        
+
         // If game not found (404), clear the invalid Game ID
         if (error.message.includes('Game not found')) {
             console.log('[API] Clearing invalid Game ID');
             clearGameID();
         }
-        
+
         throw error;
     }
 }
