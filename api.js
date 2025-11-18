@@ -236,12 +236,12 @@ async function saveTILEntries(entries) {
             // Load existing game data to preserve metadata
             const existingResult = await downloadGameFile(gameId);
             const existingGameData = existingResult.gameData;
-            
+
             console.log('[API] Existing game metadata loaded:', {
                 createdAt: existingGameData.createdAt,
                 expiresAt: existingGameData.expiresAt
             });
-            
+
             // Preserve all metadata, update entries and lastUpdated
             gameData = {
                 gameId: gameId,
@@ -279,10 +279,11 @@ async function saveTILEntries(entries) {
     try {
         const result = await uploadGameFile(gameData);
 
-        // If this is a new game, save the Game ID
-        if (!gameId && result.fileId) {
+        // CRITICAL: Always update Game ID since file upload creates a new file_id
+        // This ensures we always point to the latest version of the game file
+        if (result.fileId) {
             setGameID(result.fileId);
-            console.log('[API] New Game ID saved:', result.fileId);
+            console.log('[API] Game ID updated to latest file_id:', result.fileId);
         }
 
         return { success: true, fileId: result.fileId, data: result.data };
