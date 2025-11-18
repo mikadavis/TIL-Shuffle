@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -10,7 +11,7 @@
     <script>
         console.log('[Analytics] Initializing Google Analytics with Tag ID: G-Q98010P7LZ');
         window.dataLayer = window.dataLayer || [];
-        function gtag(){dataLayer.push(arguments);}
+        function gtag() { dataLayer.push(arguments); }
         gtag('js', new Date());
         gtag('config', 'G-Q98010P7LZ');
         console.log('[Analytics] Google Analytics initialized successfully');
@@ -19,8 +20,11 @@
     <link rel="stylesheet" href="styles.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Bangers&family=Righteous&family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Bangers&family=Righteous&family=Poppins:wght@400;600;700&display=swap"
+        rel="stylesheet">
 </head>
+
 <body>
     <!-- API Key Validation Modal -->
     <div id="apiKeyModal" class="modal" style="display: none;">
@@ -28,35 +32,40 @@
             <h1 class="modal-title">One-Time Setup Required to Enjoy Vibe Coded Prototypes</h1>
 
             <p class="modal-explanation">
-                As required by Meta guidelines, every user needs to go through this one-time flow, which should be required only once for all prototypes created through the
-                <a href="http://fburl.com/vibe-code" target="_blank" rel="noopener noreferrer">Vibe Coding @ Meta (XFN-Friendly)</a> Workshop
+                As required by Meta guidelines, every user needs to go through this one-time flow, which should be
+                required only once for all prototypes created through the
+                <a href="http://fburl.com/vibe-code" target="_blank" rel="noopener noreferrer">Vibe Coding @ Meta
+                    (XFN-Friendly)</a> Workshop
             </p>
 
             <div class="modal-important-notes">
                 <h3>Important Notes:</h3>
                 <ol>
-                    <li>An API key is essentially a way for meta servers to know that you are the one using the prototype, and this is required to enable the functionalities used in this prototype, such as meta-hosted LLMs to process the prototype logic.</li>
-                    <li>The URL provided below is an internal, Meta-only service approved for company-wide use, regardless of your organization or function.</li>
+                    <li>An API key is essentially a way for meta servers to know that you are the one using the
+                        prototype, and this is required to enable the functionalities used in this prototype, such as
+                        meta-hosted LLMs to process the prototype logic.</li>
+                    <li>The URL provided below is an internal, Meta-only service approved for company-wide use,
+                        regardless of your organization or function.</li>
                 </ol>
             </div>
 
             <div class="modal-instructions">
                 <h3>Setup Instructions:</h3>
                 <ul>
-                    <li><strong>Step 0:</strong> If never done before, go to <a href="https://wearables-ape.io/consent" target="_blank" rel="noopener noreferrer">https://wearables-ape.io/consent</a> and sign the consent form</li>
-                    <li><strong>Step 1:</strong> Go to <a href="https://wearables-ape.io/settings/api-keys" target="_blank" rel="noopener noreferrer">https://wearables-ape.io/settings/api-keys</a></li>
-                    <li><strong>Step 2:</strong> Press the "New API Key" button, and copy the API key <em>(long string of letters/numbers)</em></li>
+                    <li><strong>Step 0:</strong> If never done before, go to <a href="https://wearables-ape.io/consent"
+                            target="_blank" rel="noopener noreferrer">https://wearables-ape.io/consent</a> and sign the
+                        consent form</li>
+                    <li><strong>Step 1:</strong> Go to <a href="https://wearables-ape.io/settings/api-keys"
+                            target="_blank" rel="noopener noreferrer">https://wearables-ape.io/settings/api-keys</a>
+                    </li>
+                    <li><strong>Step 2:</strong> Press the "New API Key" button, and copy the API key <em>(long string
+                            of letters/numbers)</em></li>
                     <li><strong>Step 3:</strong> Paste your new API key into the field below and click "Save".</li>
                 </ul>
             </div>
 
             <div class="modal-input-section">
-                <input
-                    type="text"
-                    id="apiKeyInput"
-                    placeholder="Paste your API key here..."
-                    class="api-key-input"
-                >
+                <input type="text" id="apiKeyInput" placeholder="Paste your API key here..." class="api-key-input">
                 <button id="saveApiKeyBtn" class="save-btn">Save</button>
             </div>
 
@@ -107,12 +116,7 @@
             </p>
 
             <div class="modal-input-section">
-                <input
-                    type="text"
-                    id="joinGameIdInput"
-                    placeholder="Paste Game ID here..."
-                    class="api-key-input"
-                >
+                <input type="text" id="joinGameIdInput" placeholder="Paste Game ID here..." class="api-key-input">
                 <button id="joinGameBtn" class="save-btn">Join Game</button>
             </div>
 
@@ -127,7 +131,7 @@
     <div id="appContainer" style="display: none;">
         <header class="app-header">
             <h1 class="app-title">🎲 TIL SHUFFLE 🎲</h1>
-            <p class="app-subtitle">Test Your Team's Knowledge!</p>
+            <p class="app-subtitle">"I learn something new every day. And forget five other things forever."</p>
             <div id="gameIdBanner" class="game-id-banner" style="display: none;">
                 <span>Game ID: <strong id="bannerGameId"></strong></span>
                 <button id="copyGameIdBannerBtn" class="copy-banner-btn">📋</button>
@@ -202,4 +206,5 @@
     <script src="api.js"></script>
     <script src="app.js"></script>
 </body>
+
 </html>
