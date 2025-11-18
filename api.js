@@ -228,18 +228,51 @@ async function saveTILEntries(entries) {
     console.log('[API] Number of entries to save:', entries.length);
 
     const gameId = getGameID();
+    let gameData;
 
-    // Prepare game data structure
-    const gameData = {
-        gameId: gameId || 'new',
-        createdAt: gameId ? undefined : new Date().toISOString(),
-        lastUpdated: new Date().toISOString(),
-        expiresAt: gameId ? undefined : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days from now
-        entries: entries
-    };
-
-    // Remove undefined fields
-    Object.keys(gameData).forEach(key => gameData[key] === undefined && delete gameData[key]);
+    if (gameId) {
+        console.log('[API] Existing game - loading current metadata to preserve...');
+        try {
+            // Load existing game data to preserve metadata
+            const existingResult = await downloadGameFile(gameId);
+            const existingGameData = existingResult.gameData;
+            
+            console.log('[API] Existing game metadata loaded:', {
+                createdAt: existingGameData.createdAt,
+                expiresAt: existingGameData.expiresAt
+            });
+            
+            // Preserve all metadata, update entries and lastUpdated
+            gameData = {
+                gameId: gameId,
+                createdAt: existingGameData.createdAt,
+                lastUpdated: new Date().toISOString(),
+                expiresAt: existingGameData.expiresAt,
+                entries: entries
+            };
+        } catch (error) {
+            console.error('[API] Error loading existing game data:', error);
+            console.log('[API] Creating new game data structure');
+            // If we can't load existing data, create new structure
+            gameData = {
+                gameId: gameId,
+                createdAt: new Date().toISOString(),
+                lastUpdated: new Date().toISOString(),
+                expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+                entries: entries
+            };
+        }
+    } else {
+        console.log('[API] New game - creating fresh metadata');
+        // New game - create fresh metadata
+        gameData = {
+            gameId: 'new',
+            createdAt: new Date().toISOString(),
+            lastUpdated: new Date().toISOString(),
+            expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+            entries: entries
+        };
+    }
 
     console.log('[API] Game data to save:', JSON.stringify(gameData, null, 2));
 
