@@ -497,7 +497,7 @@ function validateForms() {
 
 /**
  * Handle submit all button click
- * Uses atomic merge strategy to prevent race conditions when multiple users submit simultaneously
+ * Now uses conflict-free architecture - each participant saves to their own record
  */
 async function handleSubmitAll() {
     console.log('[App] Submit all button clicked');
@@ -525,7 +525,7 @@ async function handleSubmitAll() {
     // Show loading overlay
     showLoading('Saving your TILs...');
 
-    // Prepare new entries with IDs and timestamps BEFORE any API calls
+    // Prepare new entries with IDs and timestamps
     const newEntries = validation.entries.map(entry => ({
         id: generateUUID(),
         til: entry.til,
@@ -537,9 +537,10 @@ async function handleSubmitAll() {
     console.log('[App] New entries with metadata:', JSON.stringify(newEntries, null, 2));
 
     try {
-        // Use atomic save with merge to prevent race conditions
-        await saveEntriesWithMerge(newEntries);
-        console.log('[App] Entries saved successfully with merge strategy');
+        // Save using the conflict-free architecture
+        // Each participant saves to their OWN record (no conflicts!)
+        await saveTILEntries(newEntries);
+        console.log('[App] Entries saved successfully using conflict-free architecture');
 
         hideLoading();
 
@@ -567,7 +568,6 @@ async function handleSubmitAll() {
         const retry = confirm(`Error saving entries: ${error.message}\n\nWould you like to try again?`);
         if (retry) {
             console.log('[App] User chose to retry submission');
-            // Re-enable and trigger submission again
             elements.submitAllBtn.disabled = false;
             handleSubmitAll();
         } else {

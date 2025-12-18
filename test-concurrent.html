@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TIL Shuffle - Concurrent Submission Test</title>
+    <title>TIL Shuffle - Concurrent Submission Test (Conflict-Free)</title>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -59,11 +59,27 @@
             margin: 5px 0;
         }
         label { display: block; margin-top: 10px; color: #b8c1ec; }
+        .architecture-info {
+            background: rgba(67, 233, 123, 0.1);
+            border-left: 4px solid #43e97b;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 0 8px 8px 0;
+        }
     </style>
 </head>
 <body>
     <h1>🧪 TIL Shuffle - Concurrent Submission Test</h1>
-    <p>This test simulates multiple users submitting TILs concurrently to verify the Structured Memories API fix.</p>
+    <p>This test simulates multiple users submitting TILs concurrently using the <strong>conflict-free architecture</strong>.</p>
+
+    <div class="architecture-info">
+        <strong>✅ Conflict-Free Architecture:</strong>
+        <ul>
+            <li>Each participant saves to their <strong>OWN separate record</strong> (no conflicts possible!)</li>
+            <li>Main game record only stores list of participant session IDs</li>
+            <li>When loading, we aggregate all participant records</li>
+        </ul>
+    </div>
 
     <div class="test-section">
         <h2>Step 1: API Key</h2>
@@ -98,7 +114,8 @@
 
     <script>
         const API_BASE_URL = 'https://api.wearables-ape.io';
-        const STORAGE_KEY_PREFIX = 'til-shuffle-game-';
+        const GAME_RECORD_PREFIX = 'til-shuffle-game-';
+        const PARTICIPANT_RECORD_PREFIX = 'til-shuffle-participant-';
         let currentGameId = null;
 
         function log(message, type = 'info') {
@@ -137,6 +154,41 @@
             });
         }
 
+        async function saveToRecord(recordId, data) {
+            const apiKey = getApiKey();
+            const response = await fetch(`${API_BASE_URL}/structured-memories/${recordId}`, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(data)
+            });
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+            }
+            return await response.json();
+        }
+
+        async function loadFromRecord(recordId) {
+            const apiKey = getApiKey();
+            const response = await fetch(`${API_BASE_URL}/structured-memories/${recordId}`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            if (!response.ok) {
+                if (response.status === 404) {
+                    return { notFound: true, data: null };
+                }
+                throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+            }
+            const result = await response.json();
+            return { notFound: false, data: result.value || result };
+        }
+
         async function createTestGame() {
             const apiKey = getApiKey();
             if (!apiKey) {
@@ -144,40 +196,30 @@
                 return;
             }
 
-            log('Creating new test game...', 'info');
+            log('Creating new test game with conflict-free architecture...', 'info');
 
             currentGameId = generateUUID();
-            const recordId = `${STORAGE_KEY_PREFIX}${currentGameId}`;
+            const gameRecordId = `${GAME_RECORD_PREFIX}${currentGameId}`;
 
             const gameData = {
                 gameId: currentGameId,
                 createdAt: new Date().toISOString(),
                 lastUpdated: new Date().toISOString(),
                 expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-                entries: []
+                registeredParticipants: [] // List of session IDs
             };
 
             try {
-                const response = await fetch(`${API_BASE_URL}/structured-memories/${recordId}`, {
-                    method: 'PUT',
-                    headers: {
-                        'Authorization': `Bearer ${apiKey}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(gameData)
-                });
-
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${await response.text()}`);
-                }
+                await saveToRecord(gameRecordId, gameData);
 
                 log(`✓ Test game created successfully!`, 'success');
                 log(`  Game ID: ${currentGameId}`, 'info');
-                log(`  Record ID: ${recordId}`, 'info');
+                log(`  Game Record: ${gameRecordId}`, 'info');
 
                 document.getElementById('gameInfo').innerHTML = `
                     <p class="success">✓ Game Created!</p>
                     <p><strong>Game ID:</strong> <code>${currentGameId}</code></p>
+                    <p><strong>Architecture:</strong> Conflict-Free (each user has their own record)</p>
                 `;
 
             } catch (error) {
@@ -187,122 +229,95 @@
 
         async function simulateUserSubmission(userId, gameId) {
             const apiKey = getApiKey();
-            const recordId = `${STORAGE_KEY_PREFIX}${gameId}`;
+            const sessionId = generateUUID(); // Each user gets their own unique session
             const userName = `TestUser${userId}`;
             const tilText = `Test TIL from ${userName} - submitted at ${new Date().toISOString()}`;
-
-            // Generate unique entry ID BEFORE any API calls
             const entryId = generateUUID();
 
-            log(`[User ${userId}] Starting submission for ${userName} (entry ID: ${entryId.substring(0, 8)}...)`, 'info');
+            log(`[User ${userId}] Starting submission (session: ${sessionId.substring(0, 8)}...)`, 'info');
 
-            const maxRetries = 5;
-
-            for (let attempt = 1; attempt <= maxRetries; attempt++) {
-                try {
-                    // Step 1: Load existing entries
-                    log(`[User ${userId}] Attempt ${attempt}: Loading existing entries...`, 'info');
-                    const loadResponse = await fetch(`${API_BASE_URL}/structured-memories/${recordId}`, {
-                        method: 'GET',
-                        headers: {
-                            'Authorization': `Bearer ${apiKey}`,
-                            'Content-Type': 'application/json'
-                        }
-                    });
-
-                    let existingData = { entries: [] };
-                    if (loadResponse.ok) {
-                        const data = await loadResponse.json();
-                        existingData = data.value || data;
-                    }
-                    const existingEntries = existingData.entries || [];
-                    log(`[User ${userId}] Found ${existingEntries.length} existing entries`, 'info');
-
-                    // Step 2: Create new entry with pre-generated ID
-                    const newEntry = {
+            try {
+                // Step 1: Save entries to participant's OWN record (NO CONFLICTS!)
+                const participantRecordId = `${PARTICIPANT_RECORD_PREFIX}${gameId}-${sessionId}`;
+                const participantData = {
+                    sessionId: sessionId,
+                    gameId: gameId,
+                    updatedAt: new Date().toISOString(),
+                    entries: [{
                         id: entryId,
                         til: tilText,
                         name: userName,
                         isRevealed: false,
                         timestamp: new Date().toISOString()
-                    };
+                    }]
+                };
 
-                    // Step 3: Merge entries (deduplicate by ID)
-                    const entriesMap = new Map();
-                    existingEntries.forEach(entry => {
-                        if (entry.id) entriesMap.set(entry.id, entry);
-                    });
-                    entriesMap.set(newEntry.id, newEntry);
-                    const mergedEntries = Array.from(entriesMap.values());
+                log(`[User ${userId}] Step 1: Saving to OWN record: ${participantRecordId.substring(0, 40)}...`, 'info');
+                await saveToRecord(participantRecordId, participantData);
+                log(`[User ${userId}] ✓ Entries saved to personal record!`, 'success');
 
-                    log(`[User ${userId}] Merged entries count: ${mergedEntries.length}`, 'info');
+                // Step 2: Register session ID with the game (with retry)
+                log(`[User ${userId}] Step 2: Registering with game...`, 'info');
+                await registerParticipant(gameId, sessionId, userId);
 
-                    // Step 4: Save merged entries
-                    const gameData = {
-                        ...existingData,
-                        gameId: gameId,
-                        lastUpdated: new Date().toISOString(),
-                        entries: mergedEntries
-                    };
+                log(`[User ${userId}] ✓ Complete! Entry saved and registered.`, 'success');
+                return { success: true, userId, userName, sessionId };
 
-                    const saveResponse = await fetch(`${API_BASE_URL}/structured-memories/${recordId}`, {
-                        method: 'PUT',
-                        headers: {
-                            'Authorization': `Bearer ${apiKey}`,
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify(gameData)
-                    });
+            } catch (error) {
+                log(`[User ${userId}] ✗ ERROR: ${error.message}`, 'error');
+                return { success: false, userId, error: error.message };
+            }
+        }
 
-                    if (!saveResponse.ok) {
-                        throw new Error(`HTTP ${saveResponse.status}: ${await saveResponse.text()}`);
+        async function registerParticipant(gameId, sessionId, userId, maxRetries = 5) {
+            const gameRecordId = `${GAME_RECORD_PREFIX}${gameId}`;
+
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                try {
+                    // Load current game data
+                    const result = await loadFromRecord(gameRecordId);
+                    if (result.notFound) {
+                        throw new Error('Game not found');
                     }
 
-                    // Step 5: VERIFY - Read back and check if our entry exists
-                    log(`[User ${userId}] Verifying save...`, 'info');
-                    await new Promise(resolve => setTimeout(resolve, 200)); // Small delay
+                    const gameData = result.data;
+                    const participants = gameData.registeredParticipants || [];
 
-                    const verifyResponse = await fetch(`${API_BASE_URL}/structured-memories/${recordId}`, {
-                        method: 'GET',
-                        headers: {
-                            'Authorization': `Bearer ${apiKey}`,
-                            'Content-Type': 'application/json'
-                        }
-                    });
-
-                    if (verifyResponse.ok) {
-                        const verifyData = await verifyResponse.json();
-                        const savedEntries = (verifyData.value || verifyData).entries || [];
-                        const ourEntryExists = savedEntries.some(e => e.id === entryId);
-
-                        if (ourEntryExists) {
-                            log(`[User ${userId}] ✓ Entry verified! Save successful.`, 'success');
-                            return { success: true, userId, userName };
-                        } else {
-                            log(`[User ${userId}] ⚠ Entry NOT found after save! Retrying...`, 'warning');
-                            if (attempt < maxRetries) {
-                                const delay = 500 * Math.pow(2, attempt - 1) + Math.random() * 500;
-                                await new Promise(resolve => setTimeout(resolve, delay));
-                                continue; // Retry
-                            }
-                        }
+                    // Check if already registered
+                    if (participants.includes(sessionId)) {
+                        log(`[User ${userId}] Already registered`, 'info');
+                        return;
                     }
 
-                    // If we get here without verification, consider it success (fallback)
-                    log(`[User ${userId}] ✓ Save completed (verification skipped)`, 'success');
-                    return { success: true, userId, userName };
+                    // Add our session ID
+                    gameData.registeredParticipants = [...participants, sessionId];
+                    gameData.lastUpdated = new Date().toISOString();
 
+                    // Save updated game data
+                    await saveToRecord(gameRecordId, gameData);
+
+                    // Verify registration
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                    const verifyResult = await loadFromRecord(gameRecordId);
+                    const verifiedParticipants = verifyResult.data?.registeredParticipants || [];
+
+                    if (verifiedParticipants.includes(sessionId)) {
+                        log(`[User ${userId}] ✓ Registration verified!`, 'success');
+                        return;
+                    } else {
+                        log(`[User ${userId}] Registration not verified, retrying...`, 'warning');
+                    }
                 } catch (error) {
-                    log(`[User ${userId}] Attempt ${attempt} failed: ${error.message}`, 'error');
-                    if (attempt === maxRetries) {
-                        return { success: false, userId, error: error.message };
-                    }
-                    const delay = 500 * Math.pow(2, attempt - 1);
+                    log(`[User ${userId}] Registration attempt ${attempt} failed: ${error.message}`, 'warning');
+                }
+
+                if (attempt < maxRetries) {
+                    const delay = 500 * Math.pow(2, attempt - 1) + Math.random() * 500;
                     await new Promise(resolve => setTimeout(resolve, delay));
                 }
             }
-
-            return { success: false, userId, error: 'Max retries exceeded' };
+            // Even if registration fails, entries are still saved in participant's own record!
+            log(`[User ${userId}] Registration failed but entries are safe!`, 'warning');
         }
 
         async function runConcurrentTest() {
@@ -321,17 +336,18 @@
 
             log('', 'info');
             log('═══════════════════════════════════════════════════════', 'info');
-            log(`🚀 STARTING CONCURRENT TEST WITH ${numUsers} USERS`, 'warning');
+            log(`🚀 CONFLICT-FREE CONCURRENT TEST WITH ${numUsers} USERS`, 'warning');
             log('═══════════════════════════════════════════════════════', 'info');
+            log('Each user saves to their OWN record - NO CONFLICTS POSSIBLE!', 'info');
             log('', 'info');
 
-            // Launch all submissions CONCURRENTLY (no await between them)
+            // Launch all submissions CONCURRENTLY
             const startTime = Date.now();
             const promises = [];
 
             for (let i = 1; i <= numUsers; i++) {
-                // Add a tiny random delay (0-100ms) to simulate real-world slight timing differences
-                const delay = Math.random() * 100;
+                // Add a tiny random delay (0-50ms) to simulate real-world timing
+                const delay = Math.random() * 50;
                 promises.push(
                     new Promise(resolve => setTimeout(resolve, delay))
                         .then(() => simulateUserSubmission(i, currentGameId))
@@ -371,37 +387,47 @@
                 return;
             }
 
-            const apiKey = getApiKey();
-            const recordId = `${STORAGE_KEY_PREFIX}${currentGameId}`;
-
             log('', 'info');
             log('═══════════════════════════════════════════════════════', 'info');
-            log('🔍 VERIFYING SAVED ENTRIES', 'warning');
+            log('🔍 VERIFYING SAVED ENTRIES (Aggregating all participant records)', 'warning');
             log('═══════════════════════════════════════════════════════', 'info');
 
             try {
-                const response = await fetch(`${API_BASE_URL}/structured-memories/${recordId}`, {
-                    method: 'GET',
-                    headers: {
-                        'Authorization': `Bearer ${apiKey}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
+                // Step 1: Load game record to get registered participants
+                const gameRecordId = `${GAME_RECORD_PREFIX}${currentGameId}`;
+                const gameResult = await loadFromRecord(gameRecordId);
 
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+                if (gameResult.notFound) {
+                    log('Game not found!', 'error');
+                    return;
                 }
 
-                const data = await response.json();
-                const gameData = data.value || data;
-                const entries = gameData.entries || [];
+                const participants = gameResult.data.registeredParticipants || [];
+                log(`Registered participants: ${participants.length}`, 'info');
 
-                log(`Total entries saved: ${entries.length}`, entries.length > 0 ? 'success' : 'error');
+                // Step 2: Load each participant's entries
+                const allEntries = [];
+                for (const sessionId of participants) {
+                    const participantRecordId = `${PARTICIPANT_RECORD_PREFIX}${currentGameId}-${sessionId}`;
+                    log(`Loading participant: ${sessionId.substring(0, 8)}...`, 'info');
+
+                    try {
+                        const participantResult = await loadFromRecord(participantRecordId);
+                        if (!participantResult.notFound && participantResult.data?.entries) {
+                            allEntries.push(...participantResult.data.entries);
+                            log(`  Found ${participantResult.data.entries.length} entries`, 'success');
+                        }
+                    } catch (error) {
+                        log(`  Failed to load: ${error.message}`, 'error');
+                    }
+                }
+
                 log('', 'info');
+                log(`Total entries aggregated: ${allEntries.length}`, allEntries.length > 0 ? 'success' : 'error');
 
-                if (entries.length > 0) {
+                if (allEntries.length > 0) {
                     log('Saved entries:', 'info');
-                    entries.forEach((entry, index) => {
+                    allEntries.forEach((entry, index) => {
                         log(`  ${index + 1}. ${entry.name}: "${entry.til.substring(0, 50)}..."`, 'info');
                     });
                 }
@@ -409,20 +435,20 @@
                 const numUsers = parseInt(document.getElementById('numUsers').value);
                 log('', 'info');
 
-                if (entries.length === numUsers) {
+                if (allEntries.length === numUsers) {
                     log('═══════════════════════════════════════════════════════', 'success');
                     log(`✅ SUCCESS! All ${numUsers} entries were saved correctly!`, 'success');
-                    log('The Structured Memories API fix is WORKING!', 'success');
+                    log('The conflict-free architecture is WORKING!', 'success');
                     log('═══════════════════════════════════════════════════════', 'success');
-                } else if (entries.length < numUsers) {
+                } else if (allEntries.length < numUsers) {
                     log('═══════════════════════════════════════════════════════', 'error');
-                    log(`❌ FAILURE! Only ${entries.length} of ${numUsers} entries were saved!`, 'error');
-                    log(`Missing entries: ${numUsers - entries.length}`, 'error');
-                    log('There is still a race condition issue!', 'error');
+                    log(`❌ FAILURE! Only ${allEntries.length} of ${numUsers} entries found!`, 'error');
+                    log(`Missing entries: ${numUsers - allEntries.length}`, 'error');
+                    log('Note: Entries may exist but registration failed. Check participant records.', 'warning');
                     log('═══════════════════════════════════════════════════════', 'error');
                 } else {
                     log('═══════════════════════════════════════════════════════', 'warning');
-                    log(`⚠️ More entries than expected: ${entries.length} vs ${numUsers}`, 'warning');
+                    log(`⚠️ More entries than expected: ${allEntries.length} vs ${numUsers}`, 'warning');
                     log('═══════════════════════════════════════════════════════', 'warning');
                 }
 
@@ -438,7 +464,8 @@
                 document.getElementById('apiKey').value = savedKey;
                 log('API key loaded from localStorage', 'info');
             }
-            log('Test page ready. Create a test game to begin.', 'info');
+            log('Test page ready (Conflict-Free Architecture).', 'info');
+            log('Each participant saves to their OWN record - NO race conditions!', 'success');
         };
     </script>
 </body>

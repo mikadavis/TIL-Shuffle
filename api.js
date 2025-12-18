@@ -1,13 +1,16 @@
 // API Configuration
 const API_BASE_URL = 'https://api.wearables-ape.io';
 
-// Storage key prefix for Structured Memories API
-// Game data is stored under: til-shuffle-game-<gameId>
-const STORAGE_KEY_PREFIX = 'til-shuffle-game-';
+// Storage key prefixes for Structured Memories API
+// Main game record stores metadata + list of participant session IDs
+// Each participant has their own separate record for their entries (NO CONFLICTS!)
+const GAME_RECORD_PREFIX = 'til-shuffle-game-';
+const PARTICIPANT_RECORD_PREFIX = 'til-shuffle-participant-';
 
 console.log('[API] API module loaded');
 console.log('[API] API Base URL:', API_BASE_URL);
-console.log('[API] Storage Key Prefix:', STORAGE_KEY_PREFIX);
+console.log('[API] Game Record Prefix:', GAME_RECORD_PREFIX);
+console.log('[API] Participant Record Prefix:', PARTICIPANT_RECORD_PREFIX);
 
 /**
  * Get API key from localStorage
@@ -20,7 +23,6 @@ function getAPIKey() {
 
 /**
  * Check if API key exists and was validated recently (within 7 days)
- * Changed from 24 hours to 7 days to reduce friction for users
  */
 function isAPIKeyValid() {
     console.log('[API] Checking API key validation status...');
@@ -35,11 +37,8 @@ function isAPIKeyValid() {
         return false;
     }
 
-    // If we have an API key but no timestamp, assume it's valid
-    // (it will fail on first API call if invalid, which is fine)
     if (!lastValidated) {
         console.log('[API] No validation timestamp found, but API key exists - assuming valid');
-        // Set a timestamp now to prevent future issues
         localStorage.setItem('ape-api-key-last-validated', new Date().toISOString());
         return true;
     }
@@ -50,7 +49,6 @@ function isAPIKeyValid() {
 
     console.log('[API] Days since last validation:', daysSinceValidation.toFixed(2));
 
-    // Extended to 7 days instead of 24 hours
     if (daysSinceValidation >= 7) {
         console.log('[API] API key validation expired (>7 days) - validation required');
         return false;
@@ -65,7 +63,6 @@ function isAPIKeyValid() {
  */
 async function validateAPIKey(apiKey) {
     console.log('[API] Starting API key validation...');
-    console.log('[API] Test endpoint: POST', `${API_BASE_URL}/models/v1/chat/completions`);
 
     try {
         const payload = {
@@ -73,8 +70,6 @@ async function validateAPIKey(apiKey) {
             messages: [{ role: 'user', content: 'test' }],
             max_tokens: 5
         };
-
-        console.log('[API] Validation request payload:', JSON.stringify(payload, null, 2));
 
         const response = await fetch(`${API_BASE_URL}/models/v1/chat/completions`, {
             method: 'POST',
@@ -86,7 +81,6 @@ async function validateAPIKey(apiKey) {
         });
 
         console.log('[API] Validation response status:', response.status);
-        console.log('[API] Validation response ok:', response.ok);
 
         if (!response.ok) {
             const errorText = await response.text();
@@ -94,330 +88,352 @@ async function validateAPIKey(apiKey) {
             throw new Error(`API validation failed: ${response.status}`);
         }
 
-        const data = await response.json();
-        console.log('[API] Validation successful - Response:', JSON.stringify(data, null, 2));
-
-        // Save API key and timestamp
         localStorage.setItem('ape-api-key', apiKey);
-        const timestamp = new Date().toISOString();
-        localStorage.setItem('ape-api-key-last-validated', timestamp);
+        localStorage.setItem('ape-api-key-last-validated', new Date().toISOString());
         console.log('[API] API key saved to localStorage');
-        console.log('[API] Validation timestamp saved:', timestamp);
 
         return { success: true };
     } catch (error) {
         console.error('[API] Validation error:', error);
-        // Clear invalid credentials
         localStorage.removeItem('ape-api-key');
         localStorage.removeItem('ape-api-key-last-validated');
-        console.log('[API] Cleared invalid API key from localStorage');
         return { success: false, error: error.message };
     }
 }
 
 // ===========================================
-// Structured Memories API Functions
-// These support in-place updates (PUT) unlike the Files API
+// Session ID Management
+// Each browser/tab gets a unique session ID for their entries
 // ===========================================
 
 /**
- * Generate a unique Game ID (UUID)
- * This is generated locally, not from the API
+ * Get or create a session ID for this participant
+ * Session ID is used to create a unique record for their entries
  */
-function generateGameID() {
-    const uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+function getSessionID() {
+    let sessionId = sessionStorage.getItem('til-session-id');
+    if (!sessionId) {
+        sessionId = generateUUID();
+        sessionStorage.setItem('til-session-id', sessionId);
+        console.log('[API] Created new session ID:', sessionId);
+    } else {
+        console.log('[API] Retrieved existing session ID:', sessionId);
+    }
+    return sessionId;
+}
+
+/**
+ * Generate a unique UUID
+ */
+function generateUUID() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
         const r = Math.random() * 16 | 0;
         const v = c === 'x' ? r : (r & 0x3 | 0x8);
         return v.toString(16);
     });
-    console.log('[API] Generated new Game ID (UUID):', uuid);
+}
+
+/**
+ * Generate a unique Game ID
+ */
+function generateGameID() {
+    const uuid = generateUUID();
+    console.log('[API] Generated new Game ID:', uuid);
     return uuid;
 }
 
-/**
- * Get the Structured Memories record ID for a game
- */
-function getRecordID(gameId) {
-    const recordId = `${STORAGE_KEY_PREFIX}${gameId}`;
-    console.log('[API] Record ID for game:', recordId);
-    return recordId;
-}
-
-/**
- * Save game data to Structured Memories API (supports in-place updates)
- * PUT request updates the existing record instead of creating a new one
- */
-async function saveToStructuredMemories(gameId, gameData) {
-    console.log('[API] Saving to Structured Memories...');
-    console.log('[API] Game ID:', gameId);
-    console.log('[API] Game data:', JSON.stringify(gameData, null, 2));
-
-    const apiKey = getAPIKey();
-    if (!apiKey) {
-        console.error('[API] Cannot save - No API key found');
-        throw new Error('No API key found. Please refresh the page.');
-    }
-
-    const recordId = getRecordID(gameId);
-    const endpoint = `${API_BASE_URL}/structured-memories/${recordId}`;
-    console.log('[API] PUT endpoint:', endpoint);
-
-    try {
-        const response = await fetch(endpoint, {
-            method: 'PUT',
-            headers: {
-                'Authorization': `Bearer ${apiKey}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(gameData)
-        });
-
-        console.log('[API] Save response status:', response.status);
-        console.log('[API] Save response ok:', response.ok);
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error('[API] Save failed - Response:', errorText);
-            throw new Error(`Failed to save game data: ${response.status} - ${errorText}`);
-        }
-
-        const data = await response.json();
-        console.log('[API] Save successful - Response:', JSON.stringify(data, null, 2));
-
-        return { success: true, data };
-    } catch (error) {
-        console.error('[API] Save error:', error);
-        throw error;
-    }
-}
-
-/**
- * Load game data from Structured Memories API
- */
-async function loadFromStructuredMemories(gameId) {
-    console.log('[API] Loading from Structured Memories...');
-    console.log('[API] Game ID:', gameId);
-
-    const apiKey = getAPIKey();
-    if (!apiKey) {
-        console.error('[API] Cannot load - No API key found');
-        throw new Error('No API key found. Please refresh the page.');
-    }
-
-    const recordId = getRecordID(gameId);
-    const endpoint = `${API_BASE_URL}/structured-memories/${recordId}`;
-    console.log('[API] GET endpoint:', endpoint);
-
-    try {
-        const response = await fetch(endpoint, {
-            method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${apiKey}`,
-                'Content-Type': 'application/json'
-            }
-        });
-
-        console.log('[API] Load response status:', response.status);
-        console.log('[API] Load response ok:', response.ok);
-
-        if (!response.ok) {
-            if (response.status === 404) {
-                console.log('[API] Game not found (404) - returning empty data');
-                return { success: true, gameData: null, notFound: true };
-            }
-            const errorText = await response.text();
-            console.error('[API] Load failed - Response:', errorText);
-            throw new Error(`Failed to load game data: ${response.status} - ${errorText}`);
-        }
-
-        const data = await response.json();
-        console.log('[API] Load successful - Response:', JSON.stringify(data, null, 2));
-
-        // Structured Memories returns data in a 'value' field
-        const gameData = data.value || data;
-        console.log('[API] Extracted game data:', JSON.stringify(gameData, null, 2));
-
-        return { success: true, gameData };
-    } catch (error) {
-        console.error('[API] Load error:', error);
-        throw error;
-    }
-}
-
 // ===========================================
-// High-Level Game Functions
+// Core Structured Memories API Functions
 // ===========================================
 
 /**
- * Create a new game with a locally-generated Game ID
- * Uses Structured Memories for storage
+ * Save data to a Structured Memories record
  */
-async function uploadGameFile(gameData) {
+async function saveToRecord(recordId, data) {
+    console.log('[API] Saving to record:', recordId);
+
+    const apiKey = getAPIKey();
+    if (!apiKey) {
+        throw new Error('No API key found. Please refresh the page.');
+    }
+
+    const response = await fetch(`${API_BASE_URL}/structured-memories/${recordId}`, {
+        method: 'PUT',
+        headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
+    });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[API] Save failed:', errorText);
+        throw new Error(`Failed to save: ${response.status}`);
+    }
+
+    console.log('[API] Save successful');
+    return await response.json();
+}
+
+/**
+ * Load data from a Structured Memories record
+ */
+async function loadFromRecord(recordId) {
+    console.log('[API] Loading from record:', recordId);
+
+    const apiKey = getAPIKey();
+    if (!apiKey) {
+        throw new Error('No API key found. Please refresh the page.');
+    }
+
+    const response = await fetch(`${API_BASE_URL}/structured-memories/${recordId}`, {
+        method: 'GET',
+        headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+        }
+    });
+
+    if (!response.ok) {
+        if (response.status === 404) {
+            console.log('[API] Record not found (404)');
+            return { notFound: true, data: null };
+        }
+        const errorText = await response.text();
+        console.error('[API] Load failed:', errorText);
+        throw new Error(`Failed to load: ${response.status}`);
+    }
+
+    const result = await response.json();
+    const data = result.value || result;
+    console.log('[API] Load successful');
+    return { notFound: false, data };
+}
+
+// ===========================================
+// Conflict-Free Architecture
+// - Game record: stores metadata + registered participant session IDs
+// - Participant records: each participant has their own record (NO CONFLICTS!)
+// ===========================================
+
+/**
+ * Create a new game
+ */
+async function uploadGameFile(_gameData) {
     console.log('[API] Creating new game...');
 
-    // Generate a local UUID for the game ID
     const gameId = generateGameID();
+    const recordId = `${GAME_RECORD_PREFIX}${gameId}`;
 
-    // Update game data with the new ID
-    const updatedGameData = {
-        ...gameData,
+    const data = {
         gameId: gameId,
         createdAt: new Date().toISOString(),
         lastUpdated: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        registeredParticipants: [] // List of session IDs
     };
 
-    console.log('[API] Game data with ID:', JSON.stringify(updatedGameData, null, 2));
+    await saveToRecord(recordId, data);
+    console.log('[API] Game created with ID:', gameId);
 
-    // Save to Structured Memories
-    await saveToStructuredMemories(gameId, updatedGameData);
-
-    console.log('[API] Game created successfully with ID:', gameId);
-    return { success: true, fileId: gameId, data: updatedGameData };
+    return { success: true, fileId: gameId, data };
 }
 
 /**
- * Download game file from cloud storage using Game ID
- * Now uses Structured Memories API
+ * Download/verify a game exists
  */
 async function downloadGameFile(gameId) {
-    console.log('[API] Downloading game file...');
-    console.log('[API] Game ID:', gameId);
+    console.log('[API] Downloading game:', gameId);
 
-    const result = await loadFromStructuredMemories(gameId);
+    const recordId = `${GAME_RECORD_PREFIX}${gameId}`;
+    const result = await loadFromRecord(recordId);
 
-    if (result.notFound || !result.gameData) {
+    if (result.notFound) {
         throw new Error('Game not found. It may have expired or the Game ID is incorrect.');
     }
 
-    return { success: true, gameData: result.gameData };
+    return { success: true, gameData: result.data };
 }
 
 /**
- * Save TIL entries to cloud storage
- * Uses Structured Memories API which supports in-place updates (PUT)
- * This prevents race conditions when multiple users submit simultaneously
+ * Save participant's entries to their own record (NO CONFLICTS POSSIBLE!)
+ * Then register their session ID with the game
  */
 async function saveTILEntries(entries) {
-    console.log('[API] Saving TIL entries...');
-    console.log('[API] Number of entries to save:', entries.length);
+    console.log('[API] Saving TIL entries using conflict-free architecture...');
+    console.log('[API] Number of entries:', entries.length);
 
     const gameId = getGameID();
-
     if (!gameId) {
-        console.error('[API] No Game ID found - cannot save entries');
         throw new Error('No game found. Please create or join a game first.');
     }
 
+    const sessionId = getSessionID();
+    console.log('[API] Session ID:', sessionId);
     console.log('[API] Game ID:', gameId);
 
-    // Load existing game data to preserve metadata
-    let gameData;
-    try {
-        const existingResult = await loadFromStructuredMemories(gameId);
+    // Step 1: Save entries to participant's OWN record (NO CONFLICT POSSIBLE!)
+    const participantRecordId = `${PARTICIPANT_RECORD_PREFIX}${gameId}-${sessionId}`;
+    const participantData = {
+        sessionId: sessionId,
+        gameId: gameId,
+        updatedAt: new Date().toISOString(),
+        entries: entries
+    };
 
-        if (existingResult.gameData) {
-            console.log('[API] Existing game metadata loaded:', {
-                createdAt: existingResult.gameData.createdAt,
-                expiresAt: existingResult.gameData.expiresAt
-            });
+    console.log('[API] Step 1: Saving to participant record:', participantRecordId);
+    await saveToRecord(participantRecordId, participantData);
+    console.log('[API] Participant entries saved successfully!');
 
-            // Preserve all metadata, update entries and lastUpdated
-            gameData = {
-                ...existingResult.gameData,
-                lastUpdated: new Date().toISOString(),
-                entries: entries
-            };
-        } else {
-            console.log('[API] No existing game data found - creating new structure');
-            gameData = {
-                gameId: gameId,
-                createdAt: new Date().toISOString(),
-                lastUpdated: new Date().toISOString(),
-                expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-                entries: entries
-            };
-        }
-    } catch (error) {
-        console.error('[API] Error loading existing game data:', error);
-        console.log('[API] Creating new game data structure');
-        gameData = {
-            gameId: gameId,
-            createdAt: new Date().toISOString(),
-            lastUpdated: new Date().toISOString(),
-            expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-            entries: entries
-        };
-    }
+    // Step 2: Register session ID with the game (retry until verified)
+    console.log('[API] Step 2: Registering session ID with game...');
+    await registerParticipantWithRetry(gameId, sessionId);
 
-    console.log('[API] Game data to save:', JSON.stringify(gameData, null, 2));
-
-    // Save using Structured Memories (PUT updates in place - no new file created!)
-    await saveToStructuredMemories(gameId, gameData);
-
-    console.log('[API] Entries saved successfully to game:', gameId);
-    return { success: true, gameId: gameId };
+    console.log('[API] All done! Entries saved and participant registered.');
+    return { success: true, gameId };
 }
 
 /**
- * Load TIL entries from cloud storage
+ * Register a participant's session ID with the game record
+ * Uses retry + verification to handle race conditions
+ */
+async function registerParticipantWithRetry(gameId, sessionId, maxRetries = 5) {
+    const gameRecordId = `${GAME_RECORD_PREFIX}${gameId}`;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        console.log(`[API] Registration attempt ${attempt} of ${maxRetries}`);
+
+        try {
+            // Load current game data
+            const result = await loadFromRecord(gameRecordId);
+            if (result.notFound) {
+                throw new Error('Game not found');
+            }
+
+            const gameData = result.data;
+            const participants = gameData.registeredParticipants || [];
+
+            // Check if already registered
+            if (participants.includes(sessionId)) {
+                console.log('[API] Session already registered');
+                return;
+            }
+
+            // Add our session ID
+            const updatedParticipants = [...participants, sessionId];
+            gameData.registeredParticipants = updatedParticipants;
+            gameData.lastUpdated = new Date().toISOString();
+
+            // Save updated game data
+            await saveToRecord(gameRecordId, gameData);
+
+            // Verify registration
+            await new Promise(resolve => setTimeout(resolve, 200));
+            const verifyResult = await loadFromRecord(gameRecordId);
+            const verifiedParticipants = verifyResult.data?.registeredParticipants || [];
+
+            if (verifiedParticipants.includes(sessionId)) {
+                console.log('[API] Registration verified!');
+                return;
+            } else {
+                console.warn('[API] Registration not verified, retrying...');
+                if (attempt < maxRetries) {
+                    const delay = 500 * Math.pow(2, attempt - 1) + Math.random() * 500;
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
+            }
+        } catch (error) {
+            console.error(`[API] Registration attempt ${attempt} failed:`, error);
+            if (attempt === maxRetries) {
+                // Even if registration fails, the entries are still saved!
+                console.warn('[API] Registration failed but entries are saved in participant record');
+                return;
+            }
+            const delay = 500 * Math.pow(2, attempt - 1);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+}
+
+/**
+ * Load all TIL entries by aggregating all participant records
  */
 async function loadTILEntries() {
-    console.log('[API] Loading TIL entries...');
+    console.log('[API] Loading TIL entries (aggregating all participants)...');
 
     const gameId = getGameID();
-
     if (!gameId) {
-        console.log('[API] No Game ID found - returning empty entries');
+        console.log('[API] No Game ID found');
         return { entries: [] };
     }
 
-    console.log('[API] Loading game with ID:', gameId);
-
     try {
-        const result = await loadFromStructuredMemories(gameId);
+        // Step 1: Load game record to get list of registered participants
+        const gameRecordId = `${GAME_RECORD_PREFIX}${gameId}`;
+        const gameResult = await loadFromRecord(gameRecordId);
 
-        if (result.notFound || !result.gameData) {
-            console.log('[API] Game not found - returning empty entries');
+        if (gameResult.notFound) {
+            console.log('[API] Game not found');
             return { entries: [] };
         }
 
-        const entries = result.gameData.entries || [];
+        const gameData = gameResult.data;
+        const participantSessionIds = gameData.registeredParticipants || [];
+        console.log('[API] Registered participants:', participantSessionIds.length);
 
-        console.log('[API] Loaded entries count:', entries.length);
-        console.log('[API] Game created at:', result.gameData.createdAt);
-        console.log('[API] Game last updated:', result.gameData.lastUpdated);
-        console.log('[API] Game expires at:', result.gameData.expiresAt);
+        // Step 2: Load each participant's entries
+        const allEntries = [];
 
-        return {
-            entries,
-            gameData: result.gameData
-        };
-    } catch (error) {
-        console.error('[API] Load entries error:', error);
+        for (const sessionId of participantSessionIds) {
+            const participantRecordId = `${PARTICIPANT_RECORD_PREFIX}${gameId}-${sessionId}`;
+            console.log('[API] Loading participant:', sessionId);
 
-        // If game not found, clear the invalid Game ID
-        if (error.message.includes('Game not found')) {
-            console.log('[API] Clearing invalid Game ID');
-            clearGameID();
+            try {
+                const participantResult = await loadFromRecord(participantRecordId);
+                if (!participantResult.notFound && participantResult.data?.entries) {
+                    allEntries.push(...participantResult.data.entries);
+                    console.log('[API] Loaded', participantResult.data.entries.length, 'entries from', sessionId);
+                }
+            } catch (error) {
+                console.warn('[API] Failed to load participant', sessionId, error);
+            }
         }
 
+        console.log('[API] Total entries loaded:', allEntries.length);
+        return { entries: allEntries, gameData };
+
+    } catch (error) {
+        console.error('[API] Error loading entries:', error);
         throw error;
     }
 }
 
 /**
- * Clear all TIL entries from cloud storage
+ * Clear TIL entries (for new session)
  */
 async function clearTILEntries() {
-    console.log('[API] Clearing all TIL entries from cloud storage...');
+    console.log('[API] Clearing TIL entries...');
+
+    const gameId = getGameID();
+    if (!gameId) {
+        return { success: true };
+    }
+
+    const sessionId = getSessionID();
+    const participantRecordId = `${PARTICIPANT_RECORD_PREFIX}${gameId}-${sessionId}`;
 
     try {
-        await saveTILEntries([]);
-        console.log('[API] Successfully cleared all entries');
+        await saveToRecord(participantRecordId, {
+            sessionId: sessionId,
+            gameId: gameId,
+            updatedAt: new Date().toISOString(),
+            entries: []
+        });
+        console.log('[API] Entries cleared');
         return { success: true };
     } catch (error) {
-        console.error('[API] Clear error:', error);
+        console.error('[API] Error clearing entries:', error);
         throw error;
     }
 }
@@ -426,41 +442,25 @@ async function clearTILEntries() {
 // Game ID Management Functions
 // ===========================================
 
-/**
- * Set Game ID in localStorage
- */
 function setGameID(gameId) {
-    console.log('[API] Saving Game ID to localStorage:', gameId);
+    console.log('[API] Saving Game ID:', gameId);
     localStorage.setItem('game-id', gameId);
 }
 
-/**
- * Get Game ID from localStorage
- */
 function getGameID() {
     const gameId = localStorage.getItem('game-id');
-    console.log('[API] Retrieved Game ID from localStorage:', gameId || 'No Game ID found');
+    console.log('[API] Retrieved Game ID:', gameId || 'None');
     return gameId;
 }
 
-/**
- * Clear Game ID from localStorage
- */
 function clearGameID() {
-    console.log('[API] Clearing Game ID from localStorage');
+    console.log('[API] Clearing Game ID');
     localStorage.removeItem('game-id');
+    sessionStorage.removeItem('til-session-id'); // Also clear session
 }
 
-/**
- * Validate Game ID format (should be a UUID)
- */
 function isValidGameID(gameId) {
-    if (!gameId || typeof gameId !== 'string') {
-        return false;
-    }
-    // UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+    if (!gameId || typeof gameId !== 'string') return false;
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    // Also accept format with file extension: UUID.extension (legacy support)
-    const uuidWithExtRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z]+$/i;
-    return uuidRegex.test(gameId) || uuidWithExtRegex.test(gameId);
+    return uuidRegex.test(gameId);
 }
