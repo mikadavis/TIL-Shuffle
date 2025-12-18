@@ -552,6 +552,7 @@ async function loadGameState(gameId) {
 /**
  * Save a vote for the current TIL
  * Votes are stored in the participant's own record (conflict-free)
+ * Also registers the participant with the game if not already registered
  * @param {string} gameId - The game ID
  * @param {number} tilIndex - The index of the TIL being voted on
  * @param {string} votedForName - The name the participant voted for
@@ -599,6 +600,12 @@ async function saveVote(gameId, tilIndex, votedForName) {
 
     await saveToRecord(participantRecordId, participantData);
     console.log('[API] Vote saved successfully');
+
+    // IMPORTANT: Also register this participant with the game so their vote is counted
+    // This handles the case where a participant joined via game mode without submitting a TIL
+    console.log('[API] Registering voter with game...');
+    await registerParticipantWithRetry(gameId, sessionId);
+
     return { success: true, vote: voteRecord };
 }
 

@@ -391,16 +391,25 @@ function applyRoleBasedUI() {
         // Hide game mode controls that only owners should see
         elements.backToEntryBtn.style.display = 'none';
         elements.newSessionBtn.style.display = 'none';
+        elements.shareGameLinkBtn.style.display = 'none';
 
         // Hide the "Share Link" button from participants (they don't need it)
         if (elements.copyParticipantLinkBannerBtn) {
             elements.copyParticipantLinkBannerBtn.style.display = 'none';
         }
 
+        // Hide reveal and next buttons for participants (owner controls these)
+        elements.revealBtn.style.display = 'none';
+        elements.nextTilBtn.style.display = 'none';
+
         // Update the subtitle to indicate participant mode
         const subtitle = document.querySelector('.app-subtitle');
         if (subtitle) {
-            subtitle.textContent = '📝 Add your TIL below and submit!';
+            if (appState.gameMode === 'game') {
+                subtitle.textContent = '🗳️ Cast your vote on who said this TIL!';
+            } else {
+                subtitle.textContent = '📝 Add your TIL below and submit!';
+            }
         }
 
         console.log('[App] Participant UI applied - game controls hidden');
