@@ -477,3 +477,233 @@ function isValidGameID(gameId) {
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     return uuidRegex.test(gameId);
 }
+
+// ===========================================
+// Game State Management (for real-time voting)
+// ===========================================
+
+// Game state record prefix - stores current TIL, phase, and shuffled order
+const GAMESTATE_RECORD_PREFIX = 'til-shuffle-gamestate-';
+
+// Game phases
+const GAME_PHASES = {
+    WAITING: 'waiting',      // Game not started yet
+    VOTING: 'voting',        // Players can vote on current TIL
+    REVEALED: 'revealed',    // Answer has been revealed
+    ENDED: 'ended'           // All TILs have been shown
+};
+
+console.log('[API] Game State Record Prefix:', GAMESTATE_RECORD_PREFIX);
+console.log('[API] Game Phases:', GAME_PHASES);
+
+/**
+ * Save game state (called by owner to sync current TIL with participants)
+ * @param {string} gameId - The game ID
+ * @param {object} state - Game state object
+ */
+async function saveGameState(gameId, state) {
+    console.log('[API] Saving game state for game:', gameId);
+    console.log('[API] Game state:', JSON.stringify(state, null, 2));
+
+    const recordId = `${GAMESTATE_RECORD_PREFIX}${gameId}`;
+
+    const gameState = {
+        gameId: gameId,
+        currentTILIndex: state.currentTILIndex,
+        totalTILs: state.totalTILs,
+        shuffledIndices: state.shuffledIndices,
+        phase: state.phase || GAME_PHASES.VOTING,
+        participantNames: state.participantNames || [], // List of all participant names for voting
+        currentTILText: state.currentTILText || '', // The TIL text to display
+        revealedName: state.revealedName || null, // Name revealed after answer shown
+        updatedAt: new Date().toISOString(),
+        updatedBy: getSessionID()
+    };
+
+    await saveToRecord(recordId, gameState);
+    console.log('[API] Game state saved successfully');
+    return { success: true, gameState };
+}
+
+/**
+ * Load game state (called by participants to sync with owner's game)
+ * @param {string} gameId - The game ID
+ */
+async function loadGameState(gameId) {
+    console.log('[API] Loading game state for game:', gameId);
+
+    const recordId = `${GAMESTATE_RECORD_PREFIX}${gameId}`;
+    const result = await loadFromRecord(recordId);
+
+    if (result.notFound) {
+        console.log('[API] Game state not found - game may not have started');
+        return { notFound: true, gameState: null };
+    }
+
+    console.log('[API] Game state loaded:', JSON.stringify(result.data, null, 2));
+    return { notFound: false, gameState: result.data };
+}
+
+// ===========================================
+// Voting System (Conflict-Free)
+// Each participant saves their vote to their own record
+// ===========================================
+
+/**
+ * Save a vote for the current TIL
+ * Votes are stored in the participant's own record (conflict-free)
+ * @param {string} gameId - The game ID
+ * @param {number} tilIndex - The index of the TIL being voted on
+ * @param {string} votedForName - The name the participant voted for
+ */
+async function saveVote(gameId, tilIndex, votedForName) {
+    console.log('[API] Saving vote for game:', gameId);
+    console.log('[API] TIL Index:', tilIndex);
+    console.log('[API] Voted for:', votedForName);
+
+    const sessionId = getSessionID();
+    const participantRecordId = `${PARTICIPANT_RECORD_PREFIX}${gameId}-${sessionId}`;
+
+    // Load existing participant data
+    const existingResult = await loadFromRecord(participantRecordId);
+    let participantData = existingResult.notFound ? {} : existingResult.data;
+
+    // Initialize votes array if it doesn't exist
+    if (!participantData.votes) {
+        participantData.votes = [];
+    }
+
+    // Check if already voted for this TIL index
+    const existingVoteIndex = participantData.votes.findIndex(v => v.tilIndex === tilIndex);
+
+    const voteRecord = {
+        tilIndex: tilIndex,
+        votedForName: votedForName,
+        votedAt: new Date().toISOString()
+    };
+
+    if (existingVoteIndex >= 0) {
+        // Update existing vote
+        console.log('[API] Updating existing vote for TIL index:', tilIndex);
+        participantData.votes[existingVoteIndex] = voteRecord;
+    } else {
+        // Add new vote
+        console.log('[API] Adding new vote for TIL index:', tilIndex);
+        participantData.votes.push(voteRecord);
+    }
+
+    // Update participant record
+    participantData.sessionId = sessionId;
+    participantData.gameId = gameId;
+    participantData.updatedAt = new Date().toISOString();
+
+    await saveToRecord(participantRecordId, participantData);
+    console.log('[API] Vote saved successfully');
+    return { success: true, vote: voteRecord };
+}
+
+/**
+ * Get the current user's vote for a specific TIL
+ * @param {string} gameId - The game ID
+ * @param {number} tilIndex - The TIL index to check
+ */
+async function getMyVote(gameId, tilIndex) {
+    console.log('[API] Getting my vote for TIL index:', tilIndex);
+
+    const sessionId = getSessionID();
+    const participantRecordId = `${PARTICIPANT_RECORD_PREFIX}${gameId}-${sessionId}`;
+
+    const result = await loadFromRecord(participantRecordId);
+    if (result.notFound || !result.data.votes) {
+        console.log('[API] No votes found for current user');
+        return null;
+    }
+
+    const vote = result.data.votes.find(v => v.tilIndex === tilIndex);
+    console.log('[API] Found vote:', vote || 'none');
+    return vote || null;
+}
+
+/**
+ * Aggregate all votes for a specific TIL
+ * Loads all participant records and tallies votes
+ * @param {string} gameId - The game ID
+ * @param {number} tilIndex - The TIL index to aggregate votes for
+ */
+async function aggregateVotes(gameId, tilIndex) {
+    console.log('[API] Aggregating votes for game:', gameId, 'TIL index:', tilIndex);
+
+    // First, get all registered participants
+    const gameRecordId = `${GAME_RECORD_PREFIX}${gameId}`;
+    const gameResult = await loadFromRecord(gameRecordId);
+
+    if (gameResult.notFound) {
+        console.log('[API] Game not found');
+        return { voteTally: {}, totalVotes: 0, voters: [] };
+    }
+
+    const participantSessionIds = gameResult.data.registeredParticipants || [];
+    console.log('[API] Registered participants:', participantSessionIds.length);
+
+    // Also include current session
+    const currentSessionId = getSessionID();
+    if (currentSessionId && !participantSessionIds.includes(currentSessionId)) {
+        participantSessionIds.push(currentSessionId);
+    }
+
+    // Aggregate votes from all participants
+    const voteTally = {}; // { name: count }
+    const voters = []; // List of who voted for what
+    let totalVotes = 0;
+
+    for (const sessionId of participantSessionIds) {
+        const participantRecordId = `${PARTICIPANT_RECORD_PREFIX}${gameId}-${sessionId}`;
+
+        try {
+            const participantResult = await loadFromRecord(participantRecordId);
+
+            if (!participantResult.notFound && participantResult.data.votes) {
+                const vote = participantResult.data.votes.find(v => v.tilIndex === tilIndex);
+
+                if (vote) {
+                    const votedFor = vote.votedForName;
+                    voteTally[votedFor] = (voteTally[votedFor] || 0) + 1;
+                    totalVotes++;
+
+                    // Get voter's name from their entries
+                    const voterName = participantResult.data.entries?.[0]?.name || `Anonymous-${sessionId.substring(0, 4)}`;
+                    voters.push({
+                        voterSessionId: sessionId,
+                        voterName: voterName,
+                        votedFor: votedFor
+                    });
+
+                    console.log('[API] Vote from', voterName, ':', votedFor);
+                }
+            }
+        } catch (error) {
+            console.warn('[API] Failed to load votes from participant:', sessionId, error);
+        }
+    }
+
+    console.log('[API] Vote tally:', JSON.stringify(voteTally, null, 2));
+    console.log('[API] Total votes:', totalVotes);
+
+    return { voteTally, totalVotes, voters };
+}
+
+/**
+ * Get all participant names (for voting dropdown)
+ * @param {string} gameId - The game ID
+ */
+async function getParticipantNames(gameId) {
+    console.log('[API] Getting participant names for game:', gameId);
+
+    const { entries } = await loadTILEntries();
+
+    // Extract unique names from entries
+    const names = [...new Set(entries.map(entry => entry.name))];
+    console.log('[API] Participant names:', names);
+
+    return names;
+}

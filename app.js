@@ -1530,7 +1530,7 @@ function showStoredData() {
     console.log('[App] ape-api-key-last-validated:', localStorage.getItem('ape-api-key-last-validated') || '(not set)');
     console.log('[App] til-session-id (session):', sessionStorage.getItem('til-session-id') || '(not set)');
     console.log('[App] ========================================');
-    
+
     return {
         gameId: localStorage.getItem('game-id'),
         hasApiKey: !!localStorage.getItem('ape-api-key'),
