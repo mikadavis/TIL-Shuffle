@@ -816,11 +816,19 @@ async function handleStartGame() {
         // Shuffle entries
         shuffleEntries();
 
+        // Get participant names for voting
+        const participantNames = [...new Set(validEntries.map(entry => entry.name))];
+        appState.participantNames = participantNames;
+        console.log('[App] Participant names for voting:', participantNames);
+
         // Switch to game mode
         switchToGameMode();
 
         // Display first TIL
         displayCurrentTIL();
+
+        // PHASE 4: Publish initial game state for participants
+        await publishGameState('voting');
 
         hideLoading();
 
@@ -922,7 +930,7 @@ function displayCurrentTIL() {
 /**
  * Handle reveal button click
  */
-function handleReveal() {
+async function handleReveal() {
     console.log('[App] Reveal button clicked');
 
     const entryIndex = appState.shuffledIndices[appState.currentTILIndex];
@@ -940,18 +948,49 @@ function handleReveal() {
 
     appState.revealedCount++;
     console.log('[App] Total revealed:', appState.revealedCount);
+
+    // PHASE 4: Aggregate votes and display tally for owner
+    const gameId = getGameID();
+    if (gameId) {
+        try {
+            const { voteTally, totalVotes, voters } = await aggregateVotes(gameId, appState.currentTILIndex);
+            console.log('[App] Vote results:', voteTally, 'Total votes:', totalVotes);
+
+            // Display vote tally for owner
+            displayVoteTallyOnReveal(voteTally, totalVotes, entry.name);
+
+        } catch (error) {
+            console.error('[App] Error aggregating votes:', error);
+        }
+    }
+
+    // PHASE 4: Publish revealed game state for participants
+    await publishGameState('revealed', entry.name);
 }
 
 /**
  * Handle next TIL button click
  */
-function handleNextTIL() {
+async function handleNextTIL() {
     console.log('[App] Next TIL button clicked');
 
     appState.currentTILIndex++;
     console.log('[App] Moving to index:', appState.currentTILIndex);
 
+    // Check if game is complete
+    if (appState.currentTILIndex >= appState.shuffledIndices.length) {
+        console.log('[App] All TILs have been shown - ending game');
+        showGameComplete();
+        // PHASE 4: Publish ended game state
+        await publishGameState('ended');
+        return;
+    }
+
+    // Display the next TIL
     displayCurrentTIL();
+
+    // PHASE 4: Publish new game state for the next TIL (voting phase)
+    await publishGameState('voting');
 }
 
 /**
@@ -1983,6 +2022,144 @@ function generateGameViewURL(gameId) {
     const gameViewUrl = `${baseUrl}?gameId=${gameId}&role=participant&mode=game`;
     console.log('[App] Generated game view URL:', gameViewUrl);
     return gameViewUrl;
+}
+
+// ===========================================
+// Phase 4: Owner Game State Publishing
+// ===========================================
+
+/**
+ * Publish game state for participants to sync via polling
+ * Called by owner when starting game, revealing answer, or moving to next TIL
+ * @param {string} phase - The game phase: 'voting', 'revealed', 'ended'
+ * @param {string} revealedName - The name to show when phase is 'revealed' (optional)
+ */
+async function publishGameState(phase, revealedName = null) {
+    console.log('[App] Publishing game state...');
+    console.log('[App] Phase:', phase);
+    console.log('[App] Revealed name:', revealedName);
+
+    const gameId = getGameID();
+    if (!gameId) {
+        console.error('[App] No game ID - cannot publish game state');
+        return;
+    }
+
+    // Only owners should publish game state
+    if (appState.userRole !== 'owner') {
+        console.log('[App] Not owner - skipping game state publish');
+        return;
+    }
+
+    try {
+        // Get current TIL info
+        let currentTILText = '';
+        let currentTILIndex = appState.currentTILIndex;
+
+        if (phase !== 'ended' && appState.shuffledIndices.length > 0) {
+            const entryIndex = appState.shuffledIndices[currentTILIndex];
+            const entry = appState.entries[entryIndex];
+            currentTILText = entry?.til || '';
+        }
+
+        const gameState = {
+            currentTILIndex: currentTILIndex,
+            totalTILs: appState.entries.length,
+            shuffledIndices: appState.shuffledIndices,
+            phase: phase,
+            participantNames: appState.participantNames || [],
+            currentTILText: currentTILText,
+            revealedName: revealedName
+        };
+
+        console.log('[App] Game state to publish:', JSON.stringify(gameState, null, 2));
+
+        await saveGameState(gameId, gameState);
+        console.log('[App] Game state published successfully');
+
+        // Also update local app state for owner's reference
+        appState.gameState = gameState;
+
+    } catch (error) {
+        console.error('[App] Error publishing game state:', error);
+    }
+}
+
+/**
+ * Display vote tally on reveal (for owner)
+ * Shows who voted for whom and highlights correct guesses
+ */
+function displayVoteTallyOnReveal(voteTally, totalVotes, correctName) {
+    console.log('[App] Displaying vote tally on reveal');
+    console.log('[App] Correct answer:', correctName);
+    console.log('[App] Vote tally:', voteTally);
+    console.log('[App] Total votes:', totalVotes);
+
+    // Find or create the vote results section in game mode
+    let voteResultsSection = document.getElementById('voteResultsSection');
+
+    if (!voteResultsSection) {
+        voteResultsSection = document.createElement('div');
+        voteResultsSection.id = 'voteResultsSection';
+        voteResultsSection.className = 'voting-section';
+
+        // Insert after the answer section
+        elements.answerSection.insertAdjacentElement('afterend', voteResultsSection);
+    }
+
+    // Calculate how many got it right
+    const correctVotes = voteTally[correctName] || 0;
+    const wrongVotes = totalVotes - correctVotes;
+
+    // Sort votes by count (highest first)
+    const sortedVotes = Object.entries(voteTally)
+        .sort((a, b) => b[1] - a[1]);
+
+    // Build the results HTML
+    let resultsHTML = `
+        <h4 class="voting-title">📊 Vote Results</h4>
+        <div class="vote-summary">
+            <span class="correct-count">✓ ${correctVotes} correct</span>
+            <span class="wrong-count">✗ ${wrongVotes} wrong</span>
+            <span class="total-count">(${totalVotes} total votes)</span>
+        </div>
+        <div class="vote-results-list">
+    `;
+
+    if (sortedVotes.length === 0) {
+        resultsHTML += '<p class="no-votes">No votes were cast for this TIL.</p>';
+    } else {
+        sortedVotes.forEach(([name, count]) => {
+            const isCorrect = name === correctName;
+            const resultClass = isCorrect ? 'correct' : 'wrong';
+            const icon = isCorrect ? '✓' : '✗';
+
+            resultsHTML += `
+                <div class="vote-result-item ${resultClass}">
+                    <span class="result-icon">${icon}</span>
+                    <span class="result-name">${name}</span>
+                    <span class="result-count">${count} vote${count !== 1 ? 's' : ''}</span>
+                </div>
+            `;
+        });
+    }
+
+    resultsHTML += '</div>';
+
+    voteResultsSection.innerHTML = resultsHTML;
+    voteResultsSection.style.display = 'block';
+
+    console.log('[App] Vote results displayed');
+}
+
+/**
+ * Hide vote results section (called when moving to next TIL)
+ */
+function hideVoteResults() {
+    const voteResultsSection = document.getElementById('voteResultsSection');
+    if (voteResultsSection) {
+        voteResultsSection.style.display = 'none';
+    }
 }
 
 // ===========================================
