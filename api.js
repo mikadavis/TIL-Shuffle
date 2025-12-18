@@ -1,10 +1,13 @@
 // API Configuration
 const API_BASE_URL = 'https://api.wearables-ape.io';
-const STORAGE_KEY = 'til-shuffle-entries';
+
+// Storage key prefix for Structured Memories API
+// Game data is stored under: til-shuffle-game-<gameId>
+const STORAGE_KEY_PREFIX = 'til-shuffle-game-';
 
 console.log('[API] API module loaded');
 console.log('[API] API Base URL:', API_BASE_URL);
-console.log('[API] Storage Key:', STORAGE_KEY);
+console.log('[API] Storage Key Prefix:', STORAGE_KEY_PREFIX);
 
 /**
  * Get API key from localStorage
@@ -112,77 +115,97 @@ async function validateAPIKey(apiKey) {
     }
 }
 
+// ===========================================
+// Structured Memories API Functions
+// These support in-place updates (PUT) unlike the Files API
+// ===========================================
+
 /**
- * Upload game file to cloud storage and return file_id (Game ID)
+ * Generate a unique Game ID (UUID)
+ * This is generated locally, not from the API
  */
-async function uploadGameFile(gameData) {
-    console.log('[API] Uploading game file to cloud storage...');
+function generateGameID() {
+    const uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+    console.log('[API] Generated new Game ID (UUID):', uuid);
+    return uuid;
+}
+
+/**
+ * Get the Structured Memories record ID for a game
+ */
+function getRecordID(gameId) {
+    const recordId = `${STORAGE_KEY_PREFIX}${gameId}`;
+    console.log('[API] Record ID for game:', recordId);
+    return recordId;
+}
+
+/**
+ * Save game data to Structured Memories API (supports in-place updates)
+ * PUT request updates the existing record instead of creating a new one
+ */
+async function saveToStructuredMemories(gameId, gameData) {
+    console.log('[API] Saving to Structured Memories...');
+    console.log('[API] Game ID:', gameId);
     console.log('[API] Game data:', JSON.stringify(gameData, null, 2));
 
     const apiKey = getAPIKey();
     if (!apiKey) {
-        console.error('[API] Cannot upload - No API key found');
+        console.error('[API] Cannot save - No API key found');
         throw new Error('No API key found. Please refresh the page.');
     }
 
-    const endpoint = `${API_BASE_URL}/files/`;
-    console.log('[API] POST endpoint:', endpoint);
+    const recordId = getRecordID(gameId);
+    const endpoint = `${API_BASE_URL}/structured-memories/${recordId}`;
+    console.log('[API] PUT endpoint:', endpoint);
 
     try {
-        // Create a JSON blob from the game data
-        const jsonBlob = new Blob([JSON.stringify(gameData, null, 2)], { type: 'application/json' });
-
-        // Create FormData for multipart upload
-        const formData = new FormData();
-        formData.append('file', jsonBlob, 'til-shuffle-game.json');
-
-        console.log('[API] Uploading JSON file with FormData');
-
         const response = await fetch(endpoint, {
-            method: 'POST',
+            method: 'PUT',
             headers: {
                 'Authorization': `Bearer ${apiKey}`,
-                'accept': 'application/json'
+                'Content-Type': 'application/json'
             },
-            body: formData
+            body: JSON.stringify(gameData)
         });
 
-        console.log('[API] Upload response status:', response.status);
-        console.log('[API] Upload response ok:', response.ok);
+        console.log('[API] Save response status:', response.status);
+        console.log('[API] Save response ok:', response.ok);
 
         if (!response.ok) {
             const errorText = await response.text();
-            console.error('[API] Upload failed - Response:', errorText);
-            throw new Error(`Failed to upload game file: ${response.status} - ${errorText}`);
+            console.error('[API] Save failed - Response:', errorText);
+            throw new Error(`Failed to save game data: ${response.status} - ${errorText}`);
         }
 
         const data = await response.json();
-        console.log('[API] Upload successful - Response:', JSON.stringify(data, null, 2));
+        console.log('[API] Save successful - Response:', JSON.stringify(data, null, 2));
 
-        const fileId = data.file_id;
-        console.log('[API] Game ID (file_id):', fileId);
-
-        return { success: true, fileId, data };
+        return { success: true, data };
     } catch (error) {
-        console.error('[API] Upload error:', error);
+        console.error('[API] Save error:', error);
         throw error;
     }
 }
 
 /**
- * Download game file from cloud storage using Game ID (file_id)
+ * Load game data from Structured Memories API
  */
-async function downloadGameFile(gameId) {
-    console.log('[API] Downloading game file from cloud storage...');
-    console.log('[API] Game ID (file_id):', gameId);
+async function loadFromStructuredMemories(gameId) {
+    console.log('[API] Loading from Structured Memories...');
+    console.log('[API] Game ID:', gameId);
 
     const apiKey = getAPIKey();
     if (!apiKey) {
-        console.error('[API] Cannot download - No API key found');
+        console.error('[API] Cannot load - No API key found');
         throw new Error('No API key found. Please refresh the page.');
     }
 
-    const endpoint = `${API_BASE_URL}/files/${gameId}?file_type=default`;
+    const recordId = getRecordID(gameId);
+    const endpoint = `${API_BASE_URL}/structured-memories/${recordId}`;
     console.log('[API] GET endpoint:', endpoint);
 
     try {
@@ -190,76 +213,123 @@ async function downloadGameFile(gameId) {
             method: 'GET',
             headers: {
                 'Authorization': `Bearer ${apiKey}`,
-                'accept': 'application/json'
+                'Content-Type': 'application/json'
             }
         });
 
-        console.log('[API] Download response status:', response.status);
-        console.log('[API] Download response ok:', response.ok);
+        console.log('[API] Load response status:', response.status);
+        console.log('[API] Load response ok:', response.ok);
 
         if (!response.ok) {
             if (response.status === 404) {
-                console.error('[API] Game file not found (404) - may be expired');
-                throw new Error('Game not found. It may have expired (files last 30 days).');
+                console.log('[API] Game not found (404) - returning empty data');
+                return { success: true, gameData: null, notFound: true };
             }
             const errorText = await response.text();
-            console.error('[API] Download failed - Response:', errorText);
-            throw new Error(`Failed to download game file: ${response.status} - ${errorText}`);
+            console.error('[API] Load failed - Response:', errorText);
+            throw new Error(`Failed to load game data: ${response.status} - ${errorText}`);
         }
 
-        // Get the file as a blob
-        const blob = await response.blob();
-        console.log('[API] Downloaded blob size:', blob.size, 'bytes');
+        const data = await response.json();
+        console.log('[API] Load successful - Response:', JSON.stringify(data, null, 2));
 
-        // Convert blob to text and parse JSON
-        const text = await blob.text();
-        console.log('[API] Downloaded file content:', text);
-
-        const gameData = JSON.parse(text);
-        console.log('[API] Parsed game data:', JSON.stringify(gameData, null, 2));
+        // Structured Memories returns data in a 'value' field
+        const gameData = data.value || data;
+        console.log('[API] Extracted game data:', JSON.stringify(gameData, null, 2));
 
         return { success: true, gameData };
     } catch (error) {
-        console.error('[API] Download error:', error);
+        console.error('[API] Load error:', error);
         throw error;
     }
 }
 
+// ===========================================
+// High-Level Game Functions
+// ===========================================
+
 /**
- * Save TIL entries to cloud storage using file-based approach
- * This uploads the game data as a file and returns the Game ID
+ * Create a new game with a locally-generated Game ID
+ * Uses Structured Memories for storage
+ */
+async function uploadGameFile(gameData) {
+    console.log('[API] Creating new game...');
+
+    // Generate a local UUID for the game ID
+    const gameId = generateGameID();
+
+    // Update game data with the new ID
+    const updatedGameData = {
+        ...gameData,
+        gameId: gameId,
+        createdAt: new Date().toISOString(),
+        lastUpdated: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+    };
+
+    console.log('[API] Game data with ID:', JSON.stringify(updatedGameData, null, 2));
+
+    // Save to Structured Memories
+    await saveToStructuredMemories(gameId, updatedGameData);
+
+    console.log('[API] Game created successfully with ID:', gameId);
+    return { success: true, fileId: gameId, data: updatedGameData };
+}
+
+/**
+ * Download game file from cloud storage using Game ID
+ * Now uses Structured Memories API
+ */
+async function downloadGameFile(gameId) {
+    console.log('[API] Downloading game file...');
+    console.log('[API] Game ID:', gameId);
+
+    const result = await loadFromStructuredMemories(gameId);
+
+    if (result.notFound || !result.gameData) {
+        throw new Error('Game not found. It may have expired or the Game ID is incorrect.');
+    }
+
+    return { success: true, gameData: result.gameData };
+}
+
+/**
+ * Save TIL entries to cloud storage
+ * Uses Structured Memories API which supports in-place updates (PUT)
+ * This prevents race conditions when multiple users submit simultaneously
  */
 async function saveTILEntries(entries) {
-    console.log('[API] Saving TIL entries using file-based storage...');
+    console.log('[API] Saving TIL entries...');
     console.log('[API] Number of entries to save:', entries.length);
 
     const gameId = getGameID();
+
+    if (!gameId) {
+        console.error('[API] No Game ID found - cannot save entries');
+        throw new Error('No game found. Please create or join a game first.');
+    }
+
+    console.log('[API] Game ID:', gameId);
+
+    // Load existing game data to preserve metadata
     let gameData;
+    try {
+        const existingResult = await loadFromStructuredMemories(gameId);
 
-    if (gameId) {
-        console.log('[API] Existing game - loading current metadata to preserve...');
-        try {
-            // Load existing game data to preserve metadata
-            const existingResult = await downloadGameFile(gameId);
-            const existingGameData = existingResult.gameData;
-
+        if (existingResult.gameData) {
             console.log('[API] Existing game metadata loaded:', {
-                createdAt: existingGameData.createdAt,
-                expiresAt: existingGameData.expiresAt
+                createdAt: existingResult.gameData.createdAt,
+                expiresAt: existingResult.gameData.expiresAt
             });
 
             // Preserve all metadata, update entries and lastUpdated
             gameData = {
-                gameId: gameId,
-                createdAt: existingGameData.createdAt,
+                ...existingResult.gameData,
                 lastUpdated: new Date().toISOString(),
-                expiresAt: existingGameData.expiresAt,
                 entries: entries
             };
-        } catch (error) {
-            console.error('[API] Error loading existing game data:', error);
-            console.log('[API] Creating new game data structure');
-            // If we can't load existing data, create new structure
+        } else {
+            console.log('[API] No existing game data found - creating new structure');
             gameData = {
                 gameId: gameId,
                 createdAt: new Date().toISOString(),
@@ -268,11 +338,11 @@ async function saveTILEntries(entries) {
                 entries: entries
             };
         }
-    } else {
-        console.log('[API] New game - creating fresh metadata');
-        // New game - create fresh metadata
+    } catch (error) {
+        console.error('[API] Error loading existing game data:', error);
+        console.log('[API] Creating new game data structure');
         gameData = {
-            gameId: 'new',
+            gameId: gameId,
             createdAt: new Date().toISOString(),
             lastUpdated: new Date().toISOString(),
             expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
@@ -282,28 +352,18 @@ async function saveTILEntries(entries) {
 
     console.log('[API] Game data to save:', JSON.stringify(gameData, null, 2));
 
-    try {
-        const result = await uploadGameFile(gameData);
+    // Save using Structured Memories (PUT updates in place - no new file created!)
+    await saveToStructuredMemories(gameId, gameData);
 
-        // CRITICAL: Always update Game ID since file upload creates a new file_id
-        // This ensures we always point to the latest version of the game file
-        if (result.fileId) {
-            setGameID(result.fileId);
-            console.log('[API] Game ID updated to latest file_id:', result.fileId);
-        }
-
-        return { success: true, fileId: result.fileId, data: result.data };
-    } catch (error) {
-        console.error('[API] Save entries error:', error);
-        throw error;
-    }
+    console.log('[API] Entries saved successfully to game:', gameId);
+    return { success: true, gameId: gameId };
 }
 
 /**
- * Load TIL entries from cloud storage using file-based approach
+ * Load TIL entries from cloud storage
  */
 async function loadTILEntries() {
-    console.log('[API] Loading TIL entries using file-based storage...');
+    console.log('[API] Loading TIL entries...');
 
     const gameId = getGameID();
 
@@ -315,7 +375,13 @@ async function loadTILEntries() {
     console.log('[API] Loading game with ID:', gameId);
 
     try {
-        const result = await downloadGameFile(gameId);
+        const result = await loadFromStructuredMemories(gameId);
+
+        if (result.notFound || !result.gameData) {
+            console.log('[API] Game not found - returning empty entries');
+            return { entries: [] };
+        }
+
         const entries = result.gameData.entries || [];
 
         console.log('[API] Loaded entries count:', entries.length);
@@ -330,7 +396,7 @@ async function loadTILEntries() {
     } catch (error) {
         console.error('[API] Load entries error:', error);
 
-        // If game not found (404), clear the invalid Game ID
+        // If game not found, clear the invalid Game ID
         if (error.message.includes('Game not found')) {
             console.log('[API] Clearing invalid Game ID');
             clearGameID();
@@ -394,7 +460,7 @@ function isValidGameID(gameId) {
     }
     // UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    // Also accept format with file extension: UUID.extension
+    // Also accept format with file extension: UUID.extension (legacy support)
     const uuidWithExtRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z]+$/i;
     return uuidRegex.test(gameId) || uuidWithExtRegex.test(gameId);
 }
