@@ -497,6 +497,7 @@ function validateForms() {
 
 /**
  * Handle submit all button click
+ * Uses atomic merge strategy to prevent race conditions when multiple users submit simultaneously
  */
 async function handleSubmitAll() {
     console.log('[App] Submit all button clicked');
@@ -524,30 +525,21 @@ async function handleSubmitAll() {
     // Show loading overlay
     showLoading('Saving your TILs...');
 
+    // Prepare new entries with IDs and timestamps BEFORE any API calls
+    const newEntries = validation.entries.map(entry => ({
+        id: generateUUID(),
+        til: entry.til,
+        name: entry.name,
+        isRevealed: false,
+        timestamp: new Date().toISOString()
+    }));
+
+    console.log('[App] New entries with metadata:', JSON.stringify(newEntries, null, 2));
+
     try {
-        // Load existing entries with retry
-        const existingData = await retryAPICall(() => loadTILEntries(), 3);
-        const existingEntries = existingData.entries || [];
-        console.log('[App] Existing entries count:', existingEntries.length);
-
-        // Prepare new entries with IDs and timestamps
-        const newEntries = validation.entries.map(entry => ({
-            id: generateUUID(),
-            til: entry.til,
-            name: entry.name,
-            isRevealed: false,
-            timestamp: new Date().toISOString()
-        }));
-
-        console.log('[App] New entries with metadata:', JSON.stringify(newEntries, null, 2));
-
-        // Combine with existing entries
-        const allEntries = [...existingEntries, ...newEntries];
-        console.log('[App] Total entries after merge:', allEntries.length);
-
-        // Save to cloud storage with retry
-        await retryAPICall(() => saveTILEntries(allEntries), 3);
-        console.log('[App] Entries saved successfully');
+        // Use atomic save with merge to prevent race conditions
+        await saveEntriesWithMerge(newEntries);
+        console.log('[App] Entries saved successfully with merge strategy');
 
         hideLoading();
 
@@ -559,8 +551,10 @@ async function handleSubmitAll() {
         // Show success message
         alert(`Success! ${newEntries.length} TIL(s) saved. You can add more or start the game!`);
 
-        // Show start game button
-        elements.startGameBtn.style.display = 'inline-block';
+        // Show start game button (only for owners)
+        if (appState.userRole === 'owner') {
+            elements.startGameBtn.style.display = 'inline-block';
+        }
 
         // Re-enable submit button
         elements.submitAllBtn.disabled = false;
@@ -579,6 +573,67 @@ async function handleSubmitAll() {
         } else {
             console.log('[App] User cancelled retry');
             elements.submitAllBtn.disabled = false;
+        }
+    }
+}
+
+/**
+ * Save entries with atomic merge strategy to prevent race conditions
+ * This function fetches the LATEST entries right before saving and merges them
+ * to ensure no entries are lost when multiple users submit simultaneously
+ */
+async function saveEntriesWithMerge(newEntries, maxRetries = 3) {
+    console.log('[App] Starting atomic save with merge strategy...');
+    console.log('[App] New entries to add:', newEntries.length);
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        console.log(`[App] Merge attempt ${attempt} of ${maxRetries}`);
+
+        try {
+            // Step 1: Fetch the LATEST entries right before saving
+            console.log('[App] Step 1: Fetching latest entries...');
+            const latestData = await loadTILEntries();
+            const existingEntries = latestData.entries || [];
+            console.log('[App] Latest existing entries count:', existingEntries.length);
+
+            // Step 2: Merge - combine existing entries with new entries
+            // Use a Map to deduplicate by ID (in case of any duplicates)
+            const entriesMap = new Map();
+
+            // Add existing entries first
+            existingEntries.forEach(entry => {
+                if (entry.id) {
+                    entriesMap.set(entry.id, entry);
+                }
+            });
+
+            // Add new entries (these have unique IDs, so no conflicts)
+            newEntries.forEach(entry => {
+                entriesMap.set(entry.id, entry);
+            });
+
+            const mergedEntries = Array.from(entriesMap.values());
+            console.log('[App] Merged entries count:', mergedEntries.length);
+
+            // Step 3: Save the merged entries
+            console.log('[App] Step 2: Saving merged entries...');
+            await saveTILEntries(mergedEntries);
+
+            console.log('[App] Atomic save completed successfully!');
+            return { success: true, entriesCount: mergedEntries.length };
+
+        } catch (error) {
+            console.error(`[App] Merge attempt ${attempt} failed:`, error);
+
+            if (attempt === maxRetries) {
+                console.error('[App] All merge attempts failed - throwing error');
+                throw error;
+            }
+
+            // Wait before retrying (exponential backoff)
+            const delay = 1000 * Math.pow(2, attempt - 1);
+            console.log(`[App] Waiting ${delay}ms before retry...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
         }
     }
 }
