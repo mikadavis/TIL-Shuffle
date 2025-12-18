@@ -253,6 +253,9 @@ function initializeApp() {
     // Apply role-based UI
     applyRoleBasedUI();
 
+    // Attach event listeners first (needed for all paths)
+    attachEventListeners();
+
     // Check if user is in an existing game (from URL or localStorage)
     const gameId = getGameID();
     if (gameId) {
@@ -260,6 +263,10 @@ function initializeApp() {
         showGameIdBanner(gameId);
         hideGameSelectionButtons();
         showEntryForm();
+        // Add initial entry form only when we have a game
+        addEntryForm();
+        // Check if there are existing entries
+        checkExistingEntries();
     } else {
         console.log('[App] No existing Game ID');
 
@@ -270,20 +277,10 @@ function initializeApp() {
             return;
         }
 
-        // For owners: Show game selection page, hide entry form until game is created
+        // For owners: Show game selection page ONLY (no entry form)
         console.log('[App] Owner without game - showing game selection page');
         showGameSelectionPage();
-    }
-
-    // Add initial entry form
-    addEntryForm();
-
-    // Attach event listeners
-    attachEventListeners();
-
-    // Check if there are existing entries (only if we have a game)
-    if (gameId) {
-        checkExistingEntries();
+        // DO NOT add entry form here - it will be added after game creation
     }
 
     console.log('[App] Application initialized successfully');
@@ -295,7 +292,10 @@ function initializeApp() {
 function showGameSelectionPage() {
     console.log('[App] Showing game selection page');
 
-    // Hide entry form elements
+    // Clear any existing entry forms
+    elements.entryFormsContainer.innerHTML = '';
+
+    // Hide entry form elements completely
     elements.entryFormsContainer.style.display = 'none';
     elements.addEntryBtn.style.display = 'none';
     elements.submitAllBtn.style.display = 'none';
@@ -1140,6 +1140,11 @@ function hideCreateGameModal() {
 
     // Show the entry form now that a game has been created
     showEntryForm();
+
+    // Add entry form if none exist
+    if (elements.entryFormsContainer.children.length === 0) {
+        addEntryForm();
+    }
 }
 
 /**
@@ -1317,6 +1322,10 @@ async function handleJoinGame() {
             showGameIdBanner(gameId);
             hideGameSelectionButtons();
             showEntryForm();
+            // Add entry form if none exist
+            if (elements.entryFormsContainer.children.length === 0) {
+                addEntryForm();
+            }
             checkExistingEntries();
         }, 1500);
 
