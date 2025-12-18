@@ -379,13 +379,24 @@ async function loadTILEntries() {
         }
 
         const gameData = gameResult.data;
-        const participantSessionIds = gameData.registeredParticipants || [];
-        console.log('[API] Registered participants:', participantSessionIds.length);
+        let participantSessionIds = gameData.registeredParticipants || [];
+        console.log('[API] Registered participants:', participantSessionIds.length, participantSessionIds);
+
+        // IMPORTANT: Also include the current user's session ID even if registration failed
+        const currentSessionId = getSessionID();
+        if (currentSessionId && !participantSessionIds.includes(currentSessionId)) {
+            console.log('[API] Adding current session to load list (may not be registered yet):', currentSessionId);
+            participantSessionIds = [...participantSessionIds, currentSessionId];
+        }
 
         // Step 2: Load each participant's entries
         const allEntries = [];
+        const loadedSessionIds = new Set(); // Avoid duplicates
 
         for (const sessionId of participantSessionIds) {
+            if (loadedSessionIds.has(sessionId)) continue;
+            loadedSessionIds.add(sessionId);
+
             const participantRecordId = `${PARTICIPANT_RECORD_PREFIX}${gameId}-${sessionId}`;
             console.log('[API] Loading participant:', sessionId);
 
@@ -394,6 +405,8 @@ async function loadTILEntries() {
                 if (!participantResult.notFound && participantResult.data?.entries) {
                     allEntries.push(...participantResult.data.entries);
                     console.log('[API] Loaded', participantResult.data.entries.length, 'entries from', sessionId);
+                } else {
+                    console.log('[API] No entries found for participant:', sessionId);
                 }
             } catch (error) {
                 console.warn('[API] Failed to load participant', sessionId, error);
