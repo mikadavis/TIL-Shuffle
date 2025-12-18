@@ -6,7 +6,13 @@ let appState = {
     shuffledIndices: [],
     revealedCount: 0,
     userRole: 'owner', // 'owner' or 'participant' - determined by URL params
-    gameIdFromUrl: null // Game ID passed via URL for participants
+    gameIdFromUrl: null, // Game ID passed via URL for participants
+    gameMode: null, // 'game' if participant is viewing game mode
+    // Polling state
+    pollingInterval: null,
+    pollingRate: 2500, // Poll every 2.5 seconds
+    lastGameStateTimestamp: null,
+    isPolling: false
 };
 
 console.log('[App] Application loaded');
@@ -15,6 +21,7 @@ console.log('[App] Initial state:', JSON.stringify(appState, null, 2));
 /**
  * Parse URL parameters to determine user role and game ID
  * URL format: ?gameId=xxx&role=participant OR ?gameId=xxx (owner by default)
+ * Also handles: ?gameId=xxx&role=participant&mode=game (participant viewing game)
  */
 function parseURLParameters() {
     console.log('[App] Parsing URL parameters...');
@@ -22,9 +29,11 @@ function parseURLParameters() {
 
     const gameId = urlParams.get('gameId');
     const role = urlParams.get('role');
+    const mode = urlParams.get('mode');
 
     console.log('[App] URL gameId:', gameId);
     console.log('[App] URL role:', role);
+    console.log('[App] URL mode:', mode);
 
     // If gameId is in URL, save it
     if (gameId && isValidGameID(gameId)) {
@@ -42,9 +51,16 @@ function parseURLParameters() {
         console.log('[App] User role set to: OWNER (full access)');
     }
 
+    // Check if participant is joining game mode
+    if (mode === 'game') {
+        appState.gameMode = 'game';
+        console.log('[App] Game mode set: participant will view game and vote');
+    }
+
     return {
         gameId: appState.gameIdFromUrl,
-        role: appState.userRole
+        role: appState.userRole,
+        mode: appState.gameMode
     };
 }
 
@@ -1488,6 +1504,486 @@ window.addEventListener('popstate', (event) => {
 
 // Make removeEntryForm globally accessible
 window.removeEntryForm = removeEntryForm;
+
+// ===========================================
+// Polling System for Real-Time Game Sync
+// ===========================================
+
+/**
+ * Start polling for game state updates
+ * Called when participant joins a game in game mode
+ */
+function startPolling() {
+    if (appState.isPolling) {
+        console.log('[App] Polling already active');
+        return;
+    }
+
+    console.log('[App] Starting game state polling...');
+    console.log('[App] Poll interval:', appState.pollingRate, 'ms');
+
+    appState.isPolling = true;
+
+    // Initial poll immediately
+    pollGameState();
+
+    // Set up interval for continuous polling
+    appState.pollingInterval = setInterval(() => {
+        pollGameState();
+    }, appState.pollingRate);
+
+    console.log('[App] Polling started');
+}
+
+/**
+ * Stop polling for game state updates
+ */
+function stopPolling() {
+    if (!appState.isPolling) {
+        console.log('[App] Polling not active');
+        return;
+    }
+
+    console.log('[App] Stopping game state polling...');
+
+    if (appState.pollingInterval) {
+        clearInterval(appState.pollingInterval);
+        appState.pollingInterval = null;
+    }
+
+    appState.isPolling = false;
+    appState.lastGameStateTimestamp = null;
+
+    console.log('[App] Polling stopped');
+}
+
+/**
+ * Poll for game state updates
+ * Checks if game state has changed and updates UI accordingly
+ */
+async function pollGameState() {
+    const gameId = getGameID();
+    if (!gameId) {
+        console.log('[App] No game ID - stopping poll');
+        stopPolling();
+        return;
+    }
+
+    try {
+        const result = await loadGameState(gameId);
+
+        if (result.notFound) {
+            console.log('[App] Game state not found - game may not have started yet');
+            return;
+        }
+
+        const gameState = result.gameState;
+
+        // Check if state has changed since last poll
+        if (appState.lastGameStateTimestamp === gameState.updatedAt) {
+            // No change, skip update
+            return;
+        }
+
+        console.log('[App] Game state changed - updating UI');
+        console.log('[App] New state:', JSON.stringify(gameState, null, 2));
+
+        // Update timestamp to track changes
+        appState.lastGameStateTimestamp = gameState.updatedAt;
+
+        // Handle the game state update
+        await handleGameStateUpdate(gameState);
+
+    } catch (error) {
+        console.error('[App] Error polling game state:', error);
+        // Don't stop polling on error - just try again next interval
+    }
+}
+
+/**
+ * Handle game state update from polling
+ * Updates UI to reflect current game state for participants
+ */
+async function handleGameStateUpdate(gameState) {
+    console.log('[App] Handling game state update...');
+    console.log('[App] Phase:', gameState.phase);
+    console.log('[App] Current TIL Index:', gameState.currentTILIndex);
+
+    // Store game state in app state for reference
+    appState.gameState = gameState;
+
+    // Check game phase
+    if (gameState.phase === 'waiting' || gameState.phase === GAME_PHASES?.WAITING) {
+        console.log('[App] Game is waiting - not started yet');
+        showWaitingForGameStart();
+        return;
+    }
+
+    if (gameState.phase === 'ended' || gameState.phase === GAME_PHASES?.ENDED) {
+        console.log('[App] Game has ended');
+        showGameComplete();
+        stopPolling();
+        return;
+    }
+
+    // Game is active (voting or revealed phase)
+    // Switch to game mode if not already there
+    if (appState.currentMode !== 'game') {
+        console.log('[App] Switching to game mode for participant');
+        appState.currentMode = 'game';
+        appState.entries = []; // Will be populated from game state
+        switchToGameMode();
+    }
+
+    // Update the display with current TIL
+    displayParticipantTIL(gameState);
+
+    // Handle phase-specific UI
+    if (gameState.phase === 'voting' || gameState.phase === GAME_PHASES?.VOTING) {
+        console.log('[App] Voting phase - showing voting UI');
+        showVotingUI(gameState);
+    } else if (gameState.phase === 'revealed' || gameState.phase === GAME_PHASES?.REVEALED) {
+        console.log('[App] Revealed phase - showing answer');
+        showRevealedUI(gameState);
+    }
+}
+
+/**
+ * Show waiting for game start message
+ */
+function showWaitingForGameStart() {
+    console.log('[App] Showing waiting for game start');
+
+    // Switch to game mode UI but show waiting message
+    if (appState.currentMode !== 'game') {
+        switchToGameMode();
+        appState.currentMode = 'game';
+    }
+
+    elements.progressText.textContent = '⏳ Waiting for game to start...';
+    elements.tilText.textContent = 'The game owner hasn\'t started the game yet. Hang tight!';
+    elements.answerSection.style.display = 'none';
+    elements.revealBtn.style.display = 'none';
+    elements.nextTilBtn.style.display = 'none';
+
+    // Hide voting section if it exists
+    const votingSection = document.getElementById('votingSection');
+    if (votingSection) {
+        votingSection.style.display = 'none';
+    }
+}
+
+/**
+ * Display current TIL for participant (from game state)
+ */
+function displayParticipantTIL(gameState) {
+    console.log('[App] Displaying TIL for participant');
+
+    // Update progress
+    const current = gameState.currentTILIndex + 1;
+    const total = gameState.totalTILs;
+    elements.progressText.textContent = `TIL ${current} of ${total}`;
+
+    // Display TIL text
+    elements.tilText.textContent = gameState.currentTILText || 'Loading TIL...';
+}
+
+/**
+ * Show voting UI for participants
+ */
+function showVotingUI(gameState) {
+    console.log('[App] Showing voting UI');
+
+    // Hide answer section during voting
+    elements.answerSection.style.display = 'none';
+
+    // Hide owner controls for participants
+    if (appState.userRole === 'participant') {
+        elements.revealBtn.style.display = 'none';
+        elements.nextTilBtn.style.display = 'none';
+    }
+
+    // Show or create voting section
+    let votingSection = document.getElementById('votingSection');
+    if (!votingSection) {
+        votingSection = createVotingSection();
+    }
+
+    votingSection.style.display = 'block';
+
+    // Update voting options with participant names
+    updateVotingOptions(gameState.participantNames || []);
+
+    // Check if user has already voted for this TIL
+    checkExistingVote(gameState.currentTILIndex);
+}
+
+/**
+ * Show revealed UI (after answer is shown)
+ */
+function showRevealedUI(gameState) {
+    console.log('[App] Showing revealed UI');
+
+    // Show the answer
+    elements.answerName.textContent = gameState.revealedName || 'Unknown';
+    elements.answerSection.style.display = 'block';
+
+    // Hide voting section
+    const votingSection = document.getElementById('votingSection');
+    if (votingSection) {
+        votingSection.style.display = 'none';
+    }
+
+    // Hide controls for participants (owner controls the game flow)
+    if (appState.userRole === 'participant') {
+        elements.revealBtn.style.display = 'none';
+        elements.nextTilBtn.style.display = 'none';
+    }
+}
+
+/**
+ * Create voting section element
+ */
+function createVotingSection() {
+    console.log('[App] Creating voting section');
+
+    const votingSection = document.createElement('div');
+    votingSection.id = 'votingSection';
+    votingSection.className = 'voting-section';
+    votingSection.innerHTML = `
+        <h4 class="voting-title">🗳️ Who said this?</h4>
+        <div id="votingOptions" class="voting-options">
+            <!-- Voting buttons will be added here -->
+        </div>
+        <div id="voteTally" class="vote-tally" style="display: none;">
+            <h5>Current Votes:</h5>
+            <div id="voteTallyContent"></div>
+        </div>
+        <div id="voteStatus" class="vote-status"></div>
+    `;
+
+    // Insert after TIL card
+    elements.tilCard.insertAdjacentElement('afterend', votingSection);
+
+    return votingSection;
+}
+
+/**
+ * Update voting options with participant names
+ */
+function updateVotingOptions(names) {
+    console.log('[App] Updating voting options with names:', names);
+
+    const votingOptions = document.getElementById('votingOptions');
+    if (!votingOptions) return;
+
+    votingOptions.innerHTML = '';
+
+    names.forEach(name => {
+        const button = document.createElement('button');
+        button.className = 'vote-btn';
+        button.textContent = name;
+        button.onclick = () => handleVote(name);
+        votingOptions.appendChild(button);
+    });
+}
+
+/**
+ * Check if user has already voted for current TIL
+ */
+async function checkExistingVote(tilIndex) {
+    console.log('[App] Checking existing vote for TIL index:', tilIndex);
+
+    const gameId = getGameID();
+    if (!gameId) return;
+
+    try {
+        const vote = await getMyVote(gameId, tilIndex);
+
+        if (vote) {
+            console.log('[App] User already voted for:', vote.votedForName);
+            markVoteSelected(vote.votedForName);
+            showVoteStatus(`You voted for: ${vote.votedForName}`);
+        } else {
+            console.log('[App] No existing vote');
+            clearVoteSelection();
+            showVoteStatus('Cast your vote!');
+        }
+    } catch (error) {
+        console.error('[App] Error checking existing vote:', error);
+    }
+}
+
+/**
+ * Handle vote button click
+ */
+async function handleVote(votedForName) {
+    console.log('[App] Vote clicked for:', votedForName);
+
+    const gameId = getGameID();
+    if (!gameId) {
+        console.error('[App] No game ID for voting');
+        return;
+    }
+
+    const gameState = appState.gameState;
+    if (!gameState) {
+        console.error('[App] No game state for voting');
+        return;
+    }
+
+    // Disable voting buttons while saving
+    disableVotingButtons();
+    showVoteStatus('Saving vote...');
+
+    try {
+        await saveVote(gameId, gameState.currentTILIndex, votedForName);
+        console.log('[App] Vote saved successfully');
+
+        markVoteSelected(votedForName);
+        showVoteStatus(`✓ You voted for: ${votedForName}`);
+
+        // Refresh vote tally
+        await refreshVoteTally();
+
+    } catch (error) {
+        console.error('[App] Error saving vote:', error);
+        showVoteStatus('Error saving vote. Try again.');
+        enableVotingButtons();
+    }
+}
+
+/**
+ * Mark a vote button as selected
+ */
+function markVoteSelected(name) {
+    const votingOptions = document.getElementById('votingOptions');
+    if (!votingOptions) return;
+
+    const buttons = votingOptions.querySelectorAll('.vote-btn');
+    buttons.forEach(btn => {
+        btn.classList.remove('selected');
+        if (btn.textContent === name) {
+            btn.classList.add('selected');
+        }
+    });
+
+    enableVotingButtons();
+}
+
+/**
+ * Clear vote selection
+ */
+function clearVoteSelection() {
+    const votingOptions = document.getElementById('votingOptions');
+    if (!votingOptions) return;
+
+    const buttons = votingOptions.querySelectorAll('.vote-btn');
+    buttons.forEach(btn => {
+        btn.classList.remove('selected');
+    });
+}
+
+/**
+ * Disable voting buttons
+ */
+function disableVotingButtons() {
+    const votingOptions = document.getElementById('votingOptions');
+    if (!votingOptions) return;
+
+    const buttons = votingOptions.querySelectorAll('.vote-btn');
+    buttons.forEach(btn => {
+        btn.disabled = true;
+    });
+}
+
+/**
+ * Enable voting buttons
+ */
+function enableVotingButtons() {
+    const votingOptions = document.getElementById('votingOptions');
+    if (!votingOptions) return;
+
+    const buttons = votingOptions.querySelectorAll('.vote-btn');
+    buttons.forEach(btn => {
+        btn.disabled = false;
+    });
+}
+
+/**
+ * Show vote status message
+ */
+function showVoteStatus(message) {
+    const voteStatus = document.getElementById('voteStatus');
+    if (voteStatus) {
+        voteStatus.textContent = message;
+    }
+}
+
+/**
+ * Refresh vote tally display
+ */
+async function refreshVoteTally() {
+    console.log('[App] Refreshing vote tally');
+
+    const gameId = getGameID();
+    const gameState = appState.gameState;
+    if (!gameId || !gameState) return;
+
+    try {
+        const { voteTally, totalVotes } = await aggregateVotes(gameId, gameState.currentTILIndex);
+        displayVoteTally(voteTally, totalVotes);
+    } catch (error) {
+        console.error('[App] Error refreshing vote tally:', error);
+    }
+}
+
+/**
+ * Display vote tally
+ */
+function displayVoteTally(voteTally, totalVotes) {
+    console.log('[App] Displaying vote tally:', voteTally, 'Total:', totalVotes);
+
+    const voteTallyDiv = document.getElementById('voteTally');
+    const voteTallyContent = document.getElementById('voteTallyContent');
+
+    if (!voteTallyDiv || !voteTallyContent) return;
+
+    if (totalVotes === 0) {
+        voteTallyDiv.style.display = 'none';
+        return;
+    }
+
+    voteTallyDiv.style.display = 'block';
+
+    // Sort by vote count
+    const sortedVotes = Object.entries(voteTally)
+        .sort((a, b) => b[1] - a[1]);
+
+    voteTallyContent.innerHTML = sortedVotes
+        .map(([name, count]) => `
+            <div class="tally-item">
+                <span class="tally-name">${name}</span>
+                <span class="tally-count">${count} vote${count !== 1 ? 's' : ''}</span>
+            </div>
+        `)
+        .join('');
+}
+
+/**
+ * Generate game URL for participants to join the game view
+ */
+function generateGameViewURL(gameId) {
+    let baseUrl;
+    if (window.location.protocol === 'file:') {
+        baseUrl = window.location.href.split('?')[0];
+    } else {
+        baseUrl = window.location.origin + window.location.pathname;
+    }
+    const gameViewUrl = `${baseUrl}?gameId=${gameId}&role=participant&mode=game`;
+    console.log('[App] Generated game view URL:', gameViewUrl);
+    return gameViewUrl;
+}
 
 // ===========================================
 // localStorage Cleanup Helpers
