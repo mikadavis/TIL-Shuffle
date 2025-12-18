@@ -16,7 +16,8 @@ function getAPIKey() {
 }
 
 /**
- * Check if API key exists and was validated recently (within 24 hours)
+ * Check if API key exists and was validated recently (within 7 days)
+ * Changed from 24 hours to 7 days to reduce friction for users
  */
 function isAPIKeyValid() {
     console.log('[API] Checking API key validation status...');
@@ -31,19 +32,24 @@ function isAPIKeyValid() {
         return false;
     }
 
+    // If we have an API key but no timestamp, assume it's valid
+    // (it will fail on first API call if invalid, which is fine)
     if (!lastValidated) {
-        console.log('[API] No validation timestamp found - validation required');
-        return false;
+        console.log('[API] No validation timestamp found, but API key exists - assuming valid');
+        // Set a timestamp now to prevent future issues
+        localStorage.setItem('ape-api-key-last-validated', new Date().toISOString());
+        return true;
     }
 
     const lastValidatedTime = new Date(lastValidated).getTime();
     const currentTime = new Date().getTime();
-    const hoursSinceValidation = (currentTime - lastValidatedTime) / (1000 * 60 * 60);
+    const daysSinceValidation = (currentTime - lastValidatedTime) / (1000 * 60 * 60 * 24);
 
-    console.log('[API] Hours since last validation:', hoursSinceValidation.toFixed(2));
+    console.log('[API] Days since last validation:', daysSinceValidation.toFixed(2));
 
-    if (hoursSinceValidation >= 24) {
-        console.log('[API] API key validation expired (>24 hours) - validation required');
+    // Extended to 7 days instead of 24 hours
+    if (daysSinceValidation >= 7) {
+        console.log('[API] API key validation expired (>7 days) - validation required');
         return false;
     }
 

@@ -4,11 +4,59 @@ let appState = {
     entries: [],
     currentTILIndex: 0,
     shuffledIndices: [],
-    revealedCount: 0
+    revealedCount: 0,
+    userRole: 'owner', // 'owner' or 'participant' - determined by URL params
+    gameIdFromUrl: null // Game ID passed via URL for participants
 };
 
 console.log('[App] Application loaded');
 console.log('[App] Initial state:', JSON.stringify(appState, null, 2));
+
+/**
+ * Parse URL parameters to determine user role and game ID
+ * URL format: ?gameId=xxx&role=participant OR ?gameId=xxx (owner by default)
+ */
+function parseURLParameters() {
+    console.log('[App] Parsing URL parameters...');
+    const urlParams = new URLSearchParams(window.location.search);
+
+    const gameId = urlParams.get('gameId');
+    const role = urlParams.get('role');
+
+    console.log('[App] URL gameId:', gameId);
+    console.log('[App] URL role:', role);
+
+    // If gameId is in URL, save it
+    if (gameId && isValidGameID(gameId)) {
+        appState.gameIdFromUrl = gameId;
+        setGameID(gameId);
+        console.log('[App] Game ID from URL saved:', gameId);
+    }
+
+    // Determine role - participant if explicitly set, otherwise owner
+    if (role === 'participant') {
+        appState.userRole = 'participant';
+        console.log('[App] User role set to: PARTICIPANT (can only submit TILs)');
+    } else {
+        appState.userRole = 'owner';
+        console.log('[App] User role set to: OWNER (full access)');
+    }
+
+    return {
+        gameId: appState.gameIdFromUrl,
+        role: appState.userRole
+    };
+}
+
+/**
+ * Generate a shareable URL for participants
+ */
+function generateParticipantURL(gameId) {
+    const baseUrl = window.location.origin + window.location.pathname;
+    const participantUrl = `${baseUrl}?gameId=${gameId}&role=participant`;
+    console.log('[App] Generated participant URL:', participantUrl);
+    return participantUrl;
+}
 
 // DOM Elements
 let elements = {};
@@ -50,7 +98,9 @@ function cacheElements() {
         // Game ID modals
         createGameModal: document.getElementById('createGameModal'),
         displayGameId: document.getElementById('displayGameId'),
+        displayParticipantLink: document.getElementById('displayParticipantLink'),
         copyGameIdBtn: document.getElementById('copyGameIdBtn'),
+        copyParticipantLinkBtn: document.getElementById('copyParticipantLinkBtn'),
         closeCreateGameModal: document.getElementById('closeCreateGameModal'),
 
         joinGameModal: document.getElementById('joinGameModal'),
@@ -68,6 +118,7 @@ function cacheElements() {
         gameIdBanner: document.getElementById('gameIdBanner'),
         bannerGameId: document.getElementById('bannerGameId'),
         copyGameIdBannerBtn: document.getElementById('copyGameIdBannerBtn'),
+        copyParticipantLinkBannerBtn: document.getElementById('copyParticipantLinkBannerBtn'),
 
         // Entry mode elements
         entryMode: document.getElementById('entryMode'),
@@ -189,7 +240,13 @@ function initializeApp() {
     elements.apiKeyModal.style.display = 'none';
     elements.appContainer.style.display = 'block';
 
-    // Check if user is in an existing game
+    // Parse URL parameters first to determine role and game ID
+    parseURLParameters();
+
+    // Apply role-based UI
+    applyRoleBasedUI();
+
+    // Check if user is in an existing game (from URL or localStorage)
     const gameId = getGameID();
     if (gameId) {
         console.log('[App] Existing Game ID found:', gameId);
@@ -197,6 +254,12 @@ function initializeApp() {
         hideGameSelectionButtons();
     } else {
         console.log('[App] No existing Game ID - showing game selection buttons');
+        // Participants should not see game selection buttons if no game ID
+        if (appState.userRole === 'participant') {
+            console.log('[App] Participant with no game ID - showing error message');
+            showParticipantNoGameError();
+            return;
+        }
         showGameSelectionButtons();
     }
 
@@ -213,6 +276,66 @@ function initializeApp() {
 }
 
 /**
+ * Apply UI changes based on user role
+ */
+function applyRoleBasedUI() {
+    console.log('[App] Applying role-based UI for role:', appState.userRole);
+
+    if (appState.userRole === 'participant') {
+        // Participants cannot start the game - hide start game button
+        elements.startGameBtn.style.display = 'none';
+
+        // Hide game selection buttons (they join via URL)
+        elements.gameSelectionButtons.style.display = 'none';
+
+        // Hide game mode controls that only owners should see
+        elements.backToEntryBtn.style.display = 'none';
+        elements.newSessionBtn.style.display = 'none';
+
+        // Hide the "Share Link" button from participants (they don't need it)
+        if (elements.copyParticipantLinkBannerBtn) {
+            elements.copyParticipantLinkBannerBtn.style.display = 'none';
+        }
+
+        // Update the subtitle to indicate participant mode
+        const subtitle = document.querySelector('.app-subtitle');
+        if (subtitle) {
+            subtitle.textContent = '📝 Add your TIL below and submit!';
+        }
+
+        console.log('[App] Participant UI applied - game controls hidden');
+    } else {
+        // Owner has full access - ensure all controls are visible
+        console.log('[App] Owner UI applied - full access');
+    }
+}
+
+/**
+ * Show error message when participant accesses without a game ID
+ */
+function showParticipantNoGameError() {
+    console.log('[App] Showing participant no game error');
+
+    const entrySection = document.querySelector('.entry-section');
+    if (entrySection) {
+        entrySection.innerHTML = `
+            <h2 class="section-title">⚠️ Game Not Found</h2>
+            <p class="section-description">
+                It looks like you're trying to join a game, but no Game ID was provided in the URL.
+            </p>
+            <p class="section-description">
+                Please ask the game owner for a new link, or contact them to get the correct Game ID.
+            </p>
+            <div class="action-buttons" style="margin-top: 30px;">
+                <button onclick="window.location.href = window.location.pathname" class="secondary-btn">
+                    🏠 Go to Home (Owner Mode)
+                </button>
+            </div>
+        `;
+    }
+}
+
+/**
  * Attach all event listeners
  */
 function attachEventListeners() {
@@ -222,7 +345,9 @@ function attachEventListeners() {
     elements.createNewGameBtn.addEventListener('click', handleCreateNewGame);
     elements.joinExistingGameBtn.addEventListener('click', () => showJoinGameModal());
     elements.copyGameIdBtn.addEventListener('click', handleCopyGameId);
+    elements.copyParticipantLinkBtn.addEventListener('click', handleCopyParticipantLink);
     elements.copyGameIdBannerBtn.addEventListener('click', handleCopyGameIdBanner);
+    elements.copyParticipantLinkBannerBtn.addEventListener('click', handleCopyParticipantLinkBanner);
     elements.closeCreateGameModal.addEventListener('click', () => hideCreateGameModal());
     elements.joinGameBtn.addEventListener('click', handleJoinGame);
     elements.closeJoinGameModal.addEventListener('click', () => hideJoinGameModal());
@@ -691,15 +816,21 @@ async function handleNewSession() {
         clearGameID();
         console.log('[App] Game ID cleared');
 
-        // Reset app state
+        // Reset app state (including new role-based fields)
         appState = {
             currentMode: 'entry',
             entries: [],
             currentTILIndex: 0,
             shuffledIndices: [],
-            revealedCount: 0
+            revealedCount: 0,
+            userRole: 'owner', // Reset to owner for new sessions
+            gameIdFromUrl: null
         };
         console.log('[App] App state reset');
+
+        // Clear URL parameters
+        window.history.replaceState({}, document.title, window.location.pathname);
+        console.log('[App] URL parameters cleared');
 
         // Clear forms and switch to entry mode
         elements.entryFormsContainer.innerHTML = '';
@@ -709,6 +840,9 @@ async function handleNewSession() {
         // Hide Game ID banner and show game selection buttons
         hideGameIdBanner();
         showGameSelectionButtons();
+
+        // Reapply role-based UI (as owner)
+        applyRoleBasedUI();
 
         hideLoading();
 
@@ -810,6 +944,12 @@ async function handleCreateNewGame() {
 function showCreateGameModal(gameId) {
     console.log('[App] Showing create game modal with Game ID:', gameId);
     elements.displayGameId.value = gameId;
+
+    // Generate and display the participant URL
+    const participantUrl = generateParticipantURL(gameId);
+    elements.displayParticipantLink.value = participantUrl;
+    console.log('[App] Participant URL set:', participantUrl);
+
     elements.createGameModal.style.display = 'flex';
 }
 
@@ -862,6 +1002,53 @@ async function handleCopyGameIdBanner() {
     } catch (error) {
         console.error('[App] Error copying to clipboard:', error);
         alert('Could not copy to clipboard. Please copy manually: ' + gameId);
+    }
+}
+
+/**
+ * Handle copy Participant Link button click (from modal)
+ */
+async function handleCopyParticipantLink() {
+    console.log('[App] Copy Participant Link button clicked');
+    const gameId = getGameID();
+    const participantUrl = generateParticipantURL(gameId);
+
+    try {
+        await navigator.clipboard.writeText(participantUrl);
+        console.log('[App] Participant URL copied to clipboard');
+
+        // Visual feedback
+        elements.copyParticipantLinkBtn.textContent = '✓ Copied!';
+        setTimeout(() => {
+            elements.copyParticipantLinkBtn.textContent = '📋 Copy Link';
+        }, 2000);
+    } catch (error) {
+        console.error('[App] Error copying to clipboard:', error);
+        alert('Could not copy to clipboard. Please copy manually:\n' + participantUrl);
+    }
+}
+
+/**
+ * Handle copy Participant Link button click (from banner)
+ */
+async function handleCopyParticipantLinkBanner() {
+    console.log('[App] Copy Participant Link banner button clicked');
+    const gameId = getGameID();
+    const participantUrl = generateParticipantURL(gameId);
+
+    try {
+        await navigator.clipboard.writeText(participantUrl);
+        console.log('[App] Participant URL copied to clipboard from banner');
+
+        // Visual feedback
+        const originalText = elements.copyParticipantLinkBannerBtn.textContent;
+        elements.copyParticipantLinkBannerBtn.textContent = '✓ Copied!';
+        setTimeout(() => {
+            elements.copyParticipantLinkBannerBtn.textContent = originalText;
+        }, 2000);
+    } catch (error) {
+        console.error('[App] Error copying to clipboard:', error);
+        alert('Could not copy to clipboard. Please copy manually:\n' + participantUrl);
     }
 }
 

@@ -80,25 +80,32 @@
             <h1 class="modal-title">🎮 New Game Created!</h1>
 
             <p class="modal-explanation">
-                Your game has been created! Share this Game ID with your team so they can join and add their TILs.
+                Your game has been created! Share the participant link below with your team so they can add their TILs.
             </p>
 
             <div class="game-id-display">
-                <label>Game ID:</label>
+                <label>📎 Shareable Link for Participants:</label>
+                <div class="game-id-box">
+                    <input type="text" id="displayParticipantLink" readonly class="game-id-input participant-link-input">
+                    <button id="copyParticipantLinkBtn" class="copy-btn copy-link-btn">📋 Copy Link</button>
+                </div>
+            </div>
+
+            <div class="game-id-display" style="margin-top: 15px;">
+                <label>Game ID (for reference):</label>
                 <div class="game-id-box">
                     <input type="text" id="displayGameId" readonly class="game-id-input">
-                    <button id="copyGameIdBtn" class="copy-btn">📋 Copy</button>
+                    <button id="copyGameIdBtn" class="copy-btn">📋 Copy ID</button>
                 </div>
             </div>
 
             <div class="modal-info">
                 <p><strong>⏰ Important:</strong> Games expire after 30 days.</p>
-                <p><strong>✨ Next Steps:</strong></p>
+                <p><strong>✨ How It Works:</strong></p>
                 <ol>
-                    <li>Copy the Game ID above</li>
-                    <li>Share it with your team (via Slack, email, etc.)</li>
-                    <li>Add your TILs and submit</li>
-                    <li>When everyone has submitted, start the game!</li>
+                    <li>Copy the <strong>Shareable Link</strong> above and send it to your team</li>
+                    <li>Participants can ONLY add TILs (they won't see the Start Game button)</li>
+                    <li>When everyone has submitted, YOU start the game and share your screen!</li>
                 </ol>
             </div>
 
@@ -134,7 +141,8 @@
             <p class="app-subtitle">"I learn something new every day. And forget five other things forever."</p>
             <div id="gameIdBanner" class="game-id-banner" style="display: none;">
                 <span>Game ID: <strong id="bannerGameId"></strong></span>
-                <button id="copyGameIdBannerBtn" class="copy-banner-btn">📋</button>
+                <button id="copyGameIdBannerBtn" class="copy-banner-btn" title="Copy Game ID">📋</button>
+                <button id="copyParticipantLinkBannerBtn" class="copy-link-banner-btn" title="Copy link for participants">🔗 Share Link</button>
             </div>
         </header>
 

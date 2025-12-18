@@ -711,6 +711,33 @@ body {
     transform: scale(1.1);
 }
 
+.copy-link-banner-btn {
+    background: var(--success-gradient);
+    border: none;
+    border-radius: 8px;
+    padding: 6px 14px;
+    color: var(--dark-bg);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.copy-link-banner-btn:hover {
+    transform: scale(1.05);
+    box-shadow: 0 4px 15px rgba(67, 233, 123, 0.4);
+}
+
+.participant-link-input {
+    font-size: 12px !important;
+}
+
+.copy-link-btn {
+    background: var(--success-gradient) !important;
+    color: var(--dark-bg) !important;
+    font-weight: 600;
+}
+
 /* Game Selection Buttons */
 .game-selection-buttons {
     display: flex;
