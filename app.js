@@ -578,16 +578,24 @@ async function handleSubmitAll() {
 }
 
 /**
- * Save entries with atomic merge strategy to prevent race conditions
- * This function fetches the LATEST entries right before saving and merges them
- * to ensure no entries are lost when multiple users submit simultaneously
+ * Save entries with atomic merge strategy and POST-SAVE VERIFICATION
+ * This function:
+ * 1. Fetches the LATEST entries right before saving
+ * 2. Merges new entries with existing ones
+ * 3. Saves the merged result
+ * 4. VERIFIES the save by checking if our entries exist
+ * 5. RETRIES if verification fails (another user overwrote our save)
  */
-async function saveEntriesWithMerge(newEntries, maxRetries = 3) {
-    console.log('[App] Starting atomic save with merge strategy...');
+async function saveEntriesWithMerge(newEntries, maxRetries = 5) {
+    console.log('[App] Starting atomic save with merge and verification...');
     console.log('[App] New entries to add:', newEntries.length);
 
+    // Get the IDs of our new entries for verification
+    const newEntryIds = newEntries.map(e => e.id);
+    console.log('[App] New entry IDs to verify:', newEntryIds);
+
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        console.log(`[App] Merge attempt ${attempt} of ${maxRetries}`);
+        console.log(`[App] Save attempt ${attempt} of ${maxRetries}`);
 
         try {
             // Step 1: Fetch the LATEST entries right before saving
@@ -597,7 +605,7 @@ async function saveEntriesWithMerge(newEntries, maxRetries = 3) {
             console.log('[App] Latest existing entries count:', existingEntries.length);
 
             // Step 2: Merge - combine existing entries with new entries
-            // Use a Map to deduplicate by ID (in case of any duplicates)
+            // Use a Map to deduplicate by ID
             const entriesMap = new Map();
 
             // Add existing entries first
@@ -607,7 +615,7 @@ async function saveEntriesWithMerge(newEntries, maxRetries = 3) {
                 }
             });
 
-            // Add new entries (these have unique IDs, so no conflicts)
+            // Add new entries (these have unique IDs, so they won't overwrite existing)
             newEntries.forEach(entry => {
                 entriesMap.set(entry.id, entry);
             });
@@ -618,20 +626,55 @@ async function saveEntriesWithMerge(newEntries, maxRetries = 3) {
             // Step 3: Save the merged entries
             console.log('[App] Step 2: Saving merged entries...');
             await saveTILEntries(mergedEntries);
+            console.log('[App] Save completed, now verifying...');
 
-            console.log('[App] Atomic save completed successfully!');
-            return { success: true, entriesCount: mergedEntries.length };
+            // Step 4: VERIFY - Read back and check if our entries exist
+            console.log('[App] Step 3: Verifying save...');
+
+            // Small delay before verification to allow for propagation
+            await new Promise(resolve => setTimeout(resolve, 200));
+
+            const verifyData = await loadTILEntries();
+            const savedEntries = verifyData.entries || [];
+            const savedEntryIds = new Set(savedEntries.map(e => e.id));
+
+            // Check if ALL our new entries are in the saved data
+            const allEntriesSaved = newEntryIds.every(id => savedEntryIds.has(id));
+            const savedCount = newEntryIds.filter(id => savedEntryIds.has(id)).length;
+
+            console.log(`[App] Verification: ${savedCount}/${newEntryIds.length} entries confirmed saved`);
+
+            if (allEntriesSaved) {
+                console.log('[App] ✓ All entries verified! Save successful.');
+                return { success: true, entriesCount: savedEntries.length };
+            } else {
+                // Some entries are missing - another user likely overwrote our save
+                const missingIds = newEntryIds.filter(id => !savedEntryIds.has(id));
+                console.warn(`[App] ⚠ Verification failed! Missing entries: ${missingIds.length}`);
+                console.warn('[App] Missing IDs:', missingIds);
+
+                if (attempt === maxRetries) {
+                    console.error('[App] Max retries reached - some entries may be lost');
+                    throw new Error(`Failed to save all entries after ${maxRetries} attempts. ${missingIds.length} entries may be lost.`);
+                }
+
+                // Retry with exponential backoff
+                const delay = 500 * Math.pow(2, attempt - 1) + Math.random() * 500;
+                console.log(`[App] Retrying in ${delay.toFixed(0)}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                // Loop continues to retry
+            }
 
         } catch (error) {
-            console.error(`[App] Merge attempt ${attempt} failed:`, error);
+            console.error(`[App] Save attempt ${attempt} failed with error:`, error);
 
             if (attempt === maxRetries) {
-                console.error('[App] All merge attempts failed - throwing error');
+                console.error('[App] All save attempts failed - throwing error');
                 throw error;
             }
 
-            // Wait before retrying (exponential backoff)
-            const delay = 1000 * Math.pow(2, attempt - 1);
+            // Wait before retrying
+            const delay = 500 * Math.pow(2, attempt - 1);
             console.log(`[App] Waiting ${delay}ms before retry...`);
             await new Promise(resolve => setTimeout(resolve, delay));
         }
