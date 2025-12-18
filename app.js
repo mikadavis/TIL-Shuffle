@@ -52,7 +52,14 @@ function parseURLParameters() {
  * Generate a shareable URL for participants
  */
 function generateParticipantURL(gameId) {
-    const baseUrl = window.location.origin + window.location.pathname;
+    // Handle file:// protocol (local development) vs http/https
+    let baseUrl;
+    if (window.location.protocol === 'file:') {
+        // For local files, use the full file path
+        baseUrl = window.location.href.split('?')[0];
+    } else {
+        baseUrl = window.location.origin + window.location.pathname;
+    }
     const participantUrl = `${baseUrl}?gameId=${gameId}&role=participant`;
     console.log('[App] Generated participant URL:', participantUrl);
     return participantUrl;
@@ -943,12 +950,23 @@ async function handleCreateNewGame() {
  */
 function showCreateGameModal(gameId) {
     console.log('[App] Showing create game modal with Game ID:', gameId);
-    elements.displayGameId.value = gameId;
+
+    // Set Game ID
+    if (elements.displayGameId) {
+        elements.displayGameId.value = gameId;
+        console.log('[App] Game ID field set:', gameId);
+    } else {
+        console.error('[App] displayGameId element not found!');
+    }
 
     // Generate and display the participant URL
     const participantUrl = generateParticipantURL(gameId);
-    elements.displayParticipantLink.value = participantUrl;
-    console.log('[App] Participant URL set:', participantUrl);
+    if (elements.displayParticipantLink) {
+        elements.displayParticipantLink.value = participantUrl;
+        console.log('[App] Participant URL field set:', participantUrl);
+    } else {
+        console.error('[App] displayParticipantLink element not found!');
+    }
 
     elements.createGameModal.style.display = 'flex';
 }
@@ -1010,8 +1028,14 @@ async function handleCopyGameIdBanner() {
  */
 async function handleCopyParticipantLink() {
     console.log('[App] Copy Participant Link button clicked');
-    const gameId = getGameID();
-    const participantUrl = generateParticipantURL(gameId);
+    const participantUrl = elements.displayParticipantLink.value;
+    console.log('[App] Participant URL to copy:', participantUrl);
+
+    if (!participantUrl) {
+        console.error('[App] No participant URL found in input field');
+        alert('No URL to copy. Please try creating a new game.');
+        return;
+    }
 
     try {
         await navigator.clipboard.writeText(participantUrl);
@@ -1024,7 +1048,10 @@ async function handleCopyParticipantLink() {
         }, 2000);
     } catch (error) {
         console.error('[App] Error copying to clipboard:', error);
-        alert('Could not copy to clipboard. Please copy manually:\n' + participantUrl);
+        // Select the text so user can manually copy
+        elements.displayParticipantLink.select();
+        elements.displayParticipantLink.setSelectionRange(0, 99999);
+        alert('Please press Ctrl+C (or Cmd+C on Mac) to copy the selected link.\n\nNote: Automatic copy requires HTTPS.');
     }
 }
 
@@ -1034,7 +1061,15 @@ async function handleCopyParticipantLink() {
 async function handleCopyParticipantLinkBanner() {
     console.log('[App] Copy Participant Link banner button clicked');
     const gameId = getGameID();
+
+    if (!gameId) {
+        console.error('[App] No Game ID found');
+        alert('No Game ID found. Please create or join a game first.');
+        return;
+    }
+
     const participantUrl = generateParticipantURL(gameId);
+    console.log('[App] Participant URL to copy:', participantUrl);
 
     try {
         await navigator.clipboard.writeText(participantUrl);
@@ -1048,7 +1083,8 @@ async function handleCopyParticipantLinkBanner() {
         }, 2000);
     } catch (error) {
         console.error('[App] Error copying to clipboard:', error);
-        alert('Could not copy to clipboard. Please copy manually:\n' + participantUrl);
+        // Show a prompt with the URL so user can copy manually
+        prompt('Copy this link to share with participants:', participantUrl);
     }
 }
 
