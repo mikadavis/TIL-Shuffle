@@ -259,15 +259,20 @@ function initializeApp() {
         console.log('[App] Existing Game ID found:', gameId);
         showGameIdBanner(gameId);
         hideGameSelectionButtons();
+        showEntryForm();
     } else {
-        console.log('[App] No existing Game ID - showing game selection buttons');
+        console.log('[App] No existing Game ID');
+
         // Participants should not see game selection buttons if no game ID
         if (appState.userRole === 'participant') {
             console.log('[App] Participant with no game ID - showing error message');
             showParticipantNoGameError();
             return;
         }
-        showGameSelectionButtons();
+
+        // For owners: Show game selection page, hide entry form until game is created
+        console.log('[App] Owner without game - showing game selection page');
+        showGameSelectionPage();
     }
 
     // Add initial entry form
@@ -276,10 +281,67 @@ function initializeApp() {
     // Attach event listeners
     attachEventListeners();
 
-    // Check if there are existing entries
-    checkExistingEntries();
+    // Check if there are existing entries (only if we have a game)
+    if (gameId) {
+        checkExistingEntries();
+    }
 
     console.log('[App] Application initialized successfully');
+}
+
+/**
+ * Show the game selection page (for owners who haven't created/joined a game yet)
+ */
+function showGameSelectionPage() {
+    console.log('[App] Showing game selection page');
+
+    // Hide entry form elements
+    elements.entryFormsContainer.style.display = 'none';
+    elements.addEntryBtn.style.display = 'none';
+    elements.submitAllBtn.style.display = 'none';
+    elements.startGameBtn.style.display = 'none';
+
+    // Show game selection buttons prominently
+    showGameSelectionButtons();
+
+    // Update subtitle
+    const subtitle = document.querySelector('.app-subtitle');
+    if (subtitle) {
+        subtitle.textContent = '🎮 Create a new game or join an existing one to get started!';
+    }
+
+    // Update section description
+    const sectionDesc = document.querySelector('.section-description');
+    if (sectionDesc) {
+        sectionDesc.textContent = 'Choose an option below to begin your TIL Shuffle experience.';
+    }
+}
+
+/**
+ * Show the entry form (after a game has been created/joined)
+ */
+function showEntryForm() {
+    console.log('[App] Showing entry form');
+
+    // Show entry form elements
+    elements.entryFormsContainer.style.display = 'block';
+    elements.addEntryBtn.style.display = 'block';
+    elements.submitAllBtn.style.display = 'inline-block';
+
+    // Hide start game button initially (will show after entries exist)
+    elements.startGameBtn.style.display = 'none';
+
+    // Restore subtitle
+    const subtitle = document.querySelector('.app-subtitle');
+    if (subtitle && appState.userRole === 'owner') {
+        subtitle.textContent = '"I learn something new every day. And forget five other things forever."';
+    }
+
+    // Restore section description
+    const sectionDesc = document.querySelector('.section-description');
+    if (sectionDesc) {
+        sectionDesc.textContent = 'Enter what you learned this week. The more the merrier!';
+    }
 }
 
 /**
@@ -1070,11 +1132,14 @@ function showCreateGameModal(gameId) {
 }
 
 /**
- * Hide create game modal
+ * Hide create game modal and show entry form
  */
 function hideCreateGameModal() {
     console.log('[App] Hiding create game modal');
     elements.createGameModal.style.display = 'none';
+
+    // Show the entry form now that a game has been created
+    showEntryForm();
 }
 
 /**
@@ -1251,6 +1316,7 @@ async function handleJoinGame() {
             hideJoinGameModal();
             showGameIdBanner(gameId);
             hideGameSelectionButtons();
+            showEntryForm();
             checkExistingEntries();
         }, 1500);
 
