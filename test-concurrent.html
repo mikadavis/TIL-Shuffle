@@ -336,15 +336,20 @@
 
             log('', 'info');
             log('═══════════════════════════════════════════════════════', 'info');
-            log(`🚀 CONFLICT-FREE CONCURRENT TEST WITH ${numUsers} USERS`, 'warning');
+            log(`🚀 CONFLICT-FREE CONCURRENT TEST WITH OWNER + ${numUsers} PARTICIPANTS`, 'warning');
             log('═══════════════════════════════════════════════════════', 'info');
             log('Each user saves to their OWN record - NO CONFLICTS POSSIBLE!', 'info');
             log('', 'info');
 
-            // Launch all submissions CONCURRENTLY
+            // Launch all submissions CONCURRENTLY (including owner)
             const startTime = Date.now();
             const promises = [];
 
+            // First, simulate the OWNER submitting their TIL
+            log('[Owner] Submitting TIL as game creator...', 'warning');
+            promises.push(simulateOwnerSubmission(currentGameId));
+
+            // Then simulate participants
             for (let i = 1; i <= numUsers; i++) {
                 // Add a tiny random delay (0-50ms) to simulate real-world timing
                 const delay = Math.random() * 50;
@@ -354,7 +359,7 @@
                 );
             }
 
-            log(`All ${numUsers} submissions launched concurrently!`, 'warning');
+            log(`All ${numUsers + 1} submissions launched concurrently (1 owner + ${numUsers} participants)!`, 'warning');
 
             // Wait for all to complete
             const results = await Promise.all(promises);
@@ -369,16 +374,59 @@
 
             const successful = results.filter(r => r.success).length;
             const failed = results.filter(r => !r.success).length;
+            const totalExpected = numUsers + 1; // participants + owner
 
-            log(`Successful submissions: ${successful}/${numUsers}`, successful === numUsers ? 'success' : 'warning');
+            log(`Successful submissions: ${successful}/${totalExpected}`, successful === totalExpected ? 'success' : 'warning');
             if (failed > 0) {
-                log(`Failed submissions: ${failed}/${numUsers}`, 'error');
+                log(`Failed submissions: ${failed}/${totalExpected}`, 'error');
             }
 
             log('', 'info');
             log('Now click "Verify All Entries Saved" to check the final count!', 'warning');
 
             document.getElementById('runTestBtn').disabled = false;
+        }
+
+        async function simulateOwnerSubmission(gameId) {
+            const apiKey = getApiKey();
+            const sessionId = 'owner-' + generateUUID(); // Owner gets a special session ID
+            const userName = 'GameOwner';
+            const tilText = `Owner's TIL - submitted at ${new Date().toISOString()}`;
+            const entryId = generateUUID();
+
+            log(`[Owner] Starting submission (session: ${sessionId.substring(0, 14)}...)`, 'warning');
+
+            try {
+                // Step 1: Save entries to owner's OWN record (NO CONFLICTS!)
+                const participantRecordId = `${PARTICIPANT_RECORD_PREFIX}${gameId}-${sessionId}`;
+                const participantData = {
+                    sessionId: sessionId,
+                    gameId: gameId,
+                    updatedAt: new Date().toISOString(),
+                    entries: [{
+                        id: entryId,
+                        til: tilText,
+                        name: userName,
+                        isRevealed: false,
+                        timestamp: new Date().toISOString()
+                    }]
+                };
+
+                log(`[Owner] Step 1: Saving to OWN record...`, 'info');
+                await saveToRecord(participantRecordId, participantData);
+                log(`[Owner] ✓ Entries saved to personal record!`, 'success');
+
+                // Step 2: Register session ID with the game (with retry)
+                log(`[Owner] Step 2: Registering with game...`, 'info');
+                await registerParticipant(gameId, sessionId, 'Owner');
+
+                log(`[Owner] ✓ Complete! Owner's entry saved and registered.`, 'success');
+                return { success: true, userId: 'Owner', userName, sessionId };
+
+            } catch (error) {
+                log(`[Owner] ✗ ERROR: ${error.message}`, 'error');
+                return { success: false, userId: 'Owner', error: error.message };
+            }
         }
 
         async function verifyResults() {
@@ -433,22 +481,25 @@
                 }
 
                 const numUsers = parseInt(document.getElementById('numUsers').value);
+                const expectedTotal = numUsers + 1; // participants + owner
                 log('', 'info');
 
-                if (allEntries.length === numUsers) {
+                if (allEntries.length === expectedTotal) {
                     log('═══════════════════════════════════════════════════════', 'success');
-                    log(`✅ SUCCESS! All ${numUsers} entries were saved correctly!`, 'success');
+                    log(`✅ SUCCESS! All ${expectedTotal} entries were saved correctly!`, 'success');
+                    log(`   (1 owner + ${numUsers} participants)`, 'success');
                     log('The conflict-free architecture is WORKING!', 'success');
                     log('═══════════════════════════════════════════════════════', 'success');
-                } else if (allEntries.length < numUsers) {
+                } else if (allEntries.length < expectedTotal) {
                     log('═══════════════════════════════════════════════════════', 'error');
-                    log(`❌ FAILURE! Only ${allEntries.length} of ${numUsers} entries found!`, 'error');
-                    log(`Missing entries: ${numUsers - allEntries.length}`, 'error');
+                    log(`❌ FAILURE! Only ${allEntries.length} of ${expectedTotal} entries found!`, 'error');
+                    log(`   Expected: 1 owner + ${numUsers} participants = ${expectedTotal}`, 'error');
+                    log(`Missing entries: ${expectedTotal - allEntries.length}`, 'error');
                     log('Note: Entries may exist but registration failed. Check participant records.', 'warning');
                     log('═══════════════════════════════════════════════════════', 'error');
                 } else {
                     log('═══════════════════════════════════════════════════════', 'warning');
-                    log(`⚠️ More entries than expected: ${allEntries.length} vs ${numUsers}`, 'warning');
+                    log(`⚠️ More entries than expected: ${allEntries.length} vs ${expectedTotal}`, 'warning');
                     log('═══════════════════════════════════════════════════════', 'warning');
                 }
 
