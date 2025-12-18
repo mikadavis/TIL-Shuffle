@@ -488,7 +488,10 @@ async function checkExistingEntries() {
 
         if (result.entries && result.entries.length > 0) {
             console.log('[App] Found', result.entries.length, 'existing entries');
-            elements.startGameBtn.style.display = 'inline-block';
+            // Only show Start Game button for owners, not participants
+            if (appState.userRole === 'owner') {
+                elements.startGameBtn.style.display = 'inline-block';
+            }
         } else {
             console.log('[App] No existing entries found');
             elements.startGameBtn.style.display = 'none';
