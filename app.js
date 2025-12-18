@@ -999,6 +999,9 @@ async function handleReveal() {
 async function handleNextTIL() {
     console.log('[App] Next TIL button clicked');
 
+    // Hide previous vote results
+    hideVoteResults();
+
     appState.currentTILIndex++;
     console.log('[App] Moving to index:', appState.currentTILIndex);
 
