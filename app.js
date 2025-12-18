@@ -1489,4 +1489,63 @@ window.addEventListener('popstate', (event) => {
 // Make removeEntryForm globally accessible
 window.removeEntryForm = removeEntryForm;
 
+// ===========================================
+// localStorage Cleanup Helpers
+// ===========================================
+
+/**
+ * Clear game-related localStorage (keeps API key)
+ * Can be called from console: clearGameData()
+ */
+function clearGameData() {
+    console.log('[App] Clearing game data from localStorage...');
+    localStorage.removeItem('game-id');
+    sessionStorage.removeItem('til-session-id');
+    console.log('[App] Game data cleared. Refreshing page...');
+    window.location.href = window.location.pathname; // Remove URL params and reload
+}
+
+/**
+ * Clear ALL localStorage for this app (including API key)
+ * Can be called from console: clearAllData()
+ */
+function clearAllData() {
+    console.log('[App] Clearing ALL app data from localStorage...');
+    localStorage.removeItem('game-id');
+    localStorage.removeItem('ape-api-key');
+    localStorage.removeItem('ape-api-key-last-validated');
+    sessionStorage.removeItem('til-session-id');
+    console.log('[App] All data cleared. Refreshing page...');
+    window.location.href = window.location.pathname; // Remove URL params and reload
+}
+
+/**
+ * Show what's currently stored in localStorage
+ * Can be called from console: showStoredData()
+ */
+function showStoredData() {
+    console.log('[App] === Current localStorage Contents ===');
+    console.log('[App] game-id:', localStorage.getItem('game-id') || '(not set)');
+    console.log('[App] ape-api-key:', localStorage.getItem('ape-api-key') ? '(set - hidden for security)' : '(not set)');
+    console.log('[App] ape-api-key-last-validated:', localStorage.getItem('ape-api-key-last-validated') || '(not set)');
+    console.log('[App] til-session-id (session):', sessionStorage.getItem('til-session-id') || '(not set)');
+    console.log('[App] ========================================');
+    
+    return {
+        gameId: localStorage.getItem('game-id'),
+        hasApiKey: !!localStorage.getItem('ape-api-key'),
+        apiKeyValidated: localStorage.getItem('ape-api-key-last-validated'),
+        sessionId: sessionStorage.getItem('til-session-id')
+    };
+}
+
+// Expose cleanup helpers globally for console access
+window.clearGameData = clearGameData;
+window.clearAllData = clearAllData;
+window.showStoredData = showStoredData;
+
 console.log('[App] Application script loaded successfully');
+console.log('[App] 💡 Tip: Use these console commands for debugging:');
+console.log('[App]   - showStoredData()  : View current localStorage');
+console.log('[App]   - clearGameData()   : Clear game ID only (keeps API key)');
+console.log('[App]   - clearAllData()    : Clear everything (requires re-entering API key)');
