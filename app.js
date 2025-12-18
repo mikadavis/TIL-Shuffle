@@ -162,6 +162,7 @@ function cacheElements() {
         answerName: document.getElementById('answerName'),
         revealBtn: document.getElementById('revealBtn'),
         nextTilBtn: document.getElementById('nextTilBtn'),
+        shareGameLinkBtn: document.getElementById('shareGameLinkBtn'),
         backToEntryBtn: document.getElementById('backToEntryBtn'),
         newSessionBtn: document.getElementById('newSessionBtn')
     };
@@ -274,6 +275,20 @@ function initializeApp() {
 
     // Check if user is in an existing game (from URL or localStorage)
     const gameId = getGameID();
+
+    // PHASE 5: Check if participant is joining in game mode
+    if (appState.gameMode === 'game' && appState.userRole === 'participant' && gameId) {
+        console.log('[App] Participant joining in GAME MODE - starting polling');
+        showGameIdBanner(gameId);
+        hideGameSelectionButtons();
+        // Start polling for game state immediately
+        startPolling();
+        // Show waiting message until game state is received
+        showWaitingForGameStart();
+        console.log('[App] Participant game mode initialized');
+        return;
+    }
+
     if (gameId) {
         console.log('[App] Existing Game ID found:', gameId);
         showGameIdBanner(gameId);
@@ -445,6 +460,7 @@ function attachEventListeners() {
     // Game mode buttons
     elements.revealBtn.addEventListener('click', handleReveal);
     elements.nextTilBtn.addEventListener('click', handleNextTIL);
+    elements.shareGameLinkBtn.addEventListener('click', handleShareGameLink);
     elements.backToEntryBtn.addEventListener('click', handleBackToEntry);
     elements.newSessionBtn.addEventListener('click', handleNewSession);
 
@@ -2159,6 +2175,41 @@ function hideVoteResults() {
     const voteResultsSection = document.getElementById('voteResultsSection');
     if (voteResultsSection) {
         voteResultsSection.style.display = 'none';
+    }
+}
+
+/**
+ * Handle Share Game Link button click (from game mode)
+ * Copies the game view URL so participants can join and vote
+ */
+async function handleShareGameLink() {
+    console.log('[App] Share Game Link button clicked');
+
+    const gameId = getGameID();
+    if (!gameId) {
+        console.error('[App] No game ID found');
+        alert('No Game ID found. Please create or join a game first.');
+        return;
+    }
+
+    // Generate the game view URL for participants
+    const gameViewUrl = generateGameViewURL(gameId);
+    console.log('[App] Game view URL to share:', gameViewUrl);
+
+    try {
+        await navigator.clipboard.writeText(gameViewUrl);
+        console.log('[App] Game view URL copied to clipboard');
+
+        // Visual feedback
+        const originalText = elements.shareGameLinkBtn.textContent;
+        elements.shareGameLinkBtn.textContent = '✓ Link Copied!';
+        setTimeout(() => {
+            elements.shareGameLinkBtn.textContent = originalText;
+        }, 2500);
+    } catch (error) {
+        console.error('[App] Error copying to clipboard:', error);
+        // Show a prompt with the URL so user can copy manually
+        prompt('Copy this link to share with participants so they can vote:', gameViewUrl);
     }
 }
 
